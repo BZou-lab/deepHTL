@@ -34,15 +34,15 @@ source("lasso.R")
 ###### Scenario 14 ######
 
 n <- 2000
-p <- 40
-sigma <- 1
+p <- 20
+sigma <- 3
 method_vec <- c("rlearner-lasso", "rlearner-xgboost",
                 "weight-xgboost","weight-lasso", "weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
 bx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
-ex <- plogis(0.3*x[,1]^2 - 0.2*sin(x[,2]) + 0.3*x[,3]*x[,4] - 0.1*x[,5]^2)
+ex <- plogis(0.8 * sin(pi * x[,1] * x[,2]) + 0.6 * x[,3] * x[,4] + 0.5 * tanh(x[,5]))
 eps <- rnorm(n, 0, sigma)
 z <- rbinom(n, 1, ex)
 tx <- 2 + 2*(1/(1 + exp(-(2 * sin(pi * x[,1] * x[,2]) + 3 * (x[,3] - 0.5)^2 + pmax(x[,4] + x[,5] - 1, 0) - 1))))

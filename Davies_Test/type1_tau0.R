@@ -1,7 +1,7 @@
 args <- commandArgs(trailingOnly = TRUE)
 sim_id <- as.numeric(args[1])
 
-library(deepTL); library(rlearner); library(MASS); library(CompQuadForm); library(caret)
+library(deepTL); library(rlearner); library(MASS); library(CompQuadForm); library(caret); library(glmnet)
 
 deepTL_null <- function(object, ctrl = NULL) {
   if (!is.factor(object@z))
@@ -15,7 +15,7 @@ deepTL_null <- function(object, ctrl = NULL) {
   if (is.null(ctrl)) ctrl <- list(
     n.ensemble = 100, verbose = FALSE,
     esCtrl = list(
-      n.hidden = 10:5*2, n.batch = 100, n.epoch = 250,
+      n.hidden = 10:5*2, n.batch = 100, n.epoch = 200,
       norm.x = TRUE, norm.y = TRUE,
       activate = "relu", accel = "rcpp",
       l1.reg = 1e-4, plot = FALSE,
@@ -27,59 +27,74 @@ deepTL_null <- function(object, ctrl = NULL) {
   z_obj <- importDnnet(x = x, y = object@z)
   z_mod <- do.call("ensemble_dnnet", c(list(object = z_obj), ctrl))
   e_hat <- predict(z_mod, x)[, "A"]
-  e_hat <- pmin(pmax(e_hat, 0.01), 1 - 0.01)
+  e_hat <- pmin(pmax(e_hat, 1e-2), 1 - 1e-2) 
   
   y_obj <- importDnnet(x = x, y = y)
   y_mod <- do.call("ensemble_dnnet", c(list(object = y_obj), ctrl))
   mu_hat <- as.numeric(predict(y_mod, x))
   
-  Ztilde <- z_num - e_hat
-  w <- Ztilde^2
-  Ytilde <- (y - mu_hat) / Ztilde
-  tau0 <- sum(w * Ytilde) / sum(w)
-  r_semi <- Ytilde - tau0
+  w <- (z_num - e_hat)^2
   
-  eps_semi <- y - mu_hat - tau0 * Ztilde
-  sig2_semi <- mean(eps_semi^2)
+  Ytilde <- (y - mu_hat) / (z_num - e_hat)
+  tau0 <- tau_semi <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
+  
+  r_semi <- Ytilde - tau_semi
+  eps_semi <- (y - mu_hat) - tau_semi * (z_num - e_hat)
+  sig2_semi <- mean(w * r_semi^2)
   v_semi <- sig2_semi / w
   std_r_semi <- r_semi / sqrt(v_semi)
+  
+  beta1 <- coef(lm(y ~ z_num + e_hat))[2]
+  lambdas <- seq(0, 1, length.out = 21)
+  best <- list(score = Inf, lam = NA)
+  fold <- sample(rep(1:2, length.out = length(z_num)))
+  
+  for (lam in lambdas) {
+    c_lam <- lam * tau0 + (1 - lam) * beta1
+    score <- 0
+    for (k in 1:2) {
+      idx_tr <- fold != k; idx_te <- fold == k
+      ystar_tr <- y[idx_tr] - c_lam * z_num[idx_tr]
+      xi_mod <- glmnet::cv.glmnet(as.matrix(x[idx_tr, , drop = FALSE]), ystar_tr, alpha = 1)
+      xi_hat_te <- as.numeric(predict(xi_mod, as.matrix(x[idx_te, , drop = FALSE]), s = "lambda.min"))
+      zr_te <- z_num[idx_te] - e_hat[idx_te]
+      lab_te <- (y[idx_te] - c_lam * z_num[idx_te] - xi_hat_te) / zr_te
+      score <- score + var(lab_te, na.rm = TRUE)
+    }
+    if (score < best$score) best <- list(score = score, lam = lam)
+  }
+  tau0 <- best$lam * tau0 + (1 - best$lam) * beta1
   
   Ystar <- y - tau0 * z_num
   ystar_obj <- importDnnet(x = x, y = Ystar)
   ystar_mod <- do.call("ensemble_dnnet", c(list(object = ystar_obj), ctrl))
   mu_star_hat <- as.numeric(predict(ystar_mod, x))
   
-  tildeYstar <- (Ystar - mu_star_hat) / Ztilde
+  tildeYstar <- (Ystar - mu_star_hat) / (z_num - e_hat)
   tau_star <- sum(w * tildeYstar) / sum(w)
   tau_rev <- tau0 + tau_star
   
   r_rev <- tildeYstar - tau_star
-  eps_rev <- Ystar - mu_star_hat - tau_star * Ztilde
-  sig2_rev <- mean(eps_rev^2)
+  eps_rev <- Ystar - mu_star_hat - tau_star * (z_num - e_hat)
+  sig2_rev <- mean(w * r_rev^2)
   v_rev <- sig2_rev / w
   std_r_rev <- r_rev / sqrt(v_rev)
   
   P <- diag(n) - tcrossprod(sqrt(w)) / sum(w)
   
   list(
-    e_hat = e_hat,
-    mu_hat = mu_hat,
     w = w,
     P = P,
-    
     tau0 = tau0,
-    r_semi = r_semi,
+    tau_semi = tau_semi,
+    tau_rev = tau_rev,
     std_r_semi = std_r_semi,
     sig2_semi = sig2_semi,
     v_semi = v_semi,
-    
-    tau_star = tau_star,
-    tau_rev = tau_rev,
-    mu_star_hat = mu_star_hat,
-    r_rev = r_rev,
     std_r_rev = std_r_rev,
     sig2_rev = sig2_rev,
-    v_rev = v_rev
+    v_rev = v_rev, 
+    lam = best$lam
   )
 }
 
@@ -96,7 +111,7 @@ proj_pvals <- function(s, K, P, B = 2000) {
   
   Q_perm <- replicate(B, {
       s_perm <- sample(s, replace = FALSE)
-      as.numeric(t(s_perm) %*% K %*% s_perm)
+      as.numeric(t(s_perm) %*% Kp %*% s_perm)
     })
   p_perm <- (sum(Q_perm >= Q_obs) + 1) / (B + 1)
     
@@ -116,9 +131,9 @@ for (sigma in sigma_vec) {
         set.seed(10 * sim_id + n + d + sigma)
         X <- mvrnorm(n, mu = rep(0, d), Sigma = diag(d))
         b <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] * X[, 5]
-        e <- plogis(0.3 * X[, 1]^2 - 0.2 * sin(X[, 2]) + 0.3 * X[, 3] * X[, 4] - 0.1 * X[, 5]^2)
+        e <- plogis(0.8 * sin(pi * X[,1] * X[,2]) + 0.6 * X[,3] * X[,4] + 0.5 * tanh(X[,5]))
         Z <- rbinom(n, 1, e)
-        tau <- 5
+        tau <- rep(0, n)
         eps <- rnorm(n, 0, sigma)
         Y <- b + (Z - 0.5) * tau + eps
         
@@ -130,17 +145,21 @@ for (sigma in sigma_vec) {
         band <- median(Dmat[upper.tri(Dmat, diag = FALSE)])
         K <- exp(-(Dmat^2) / (2 * band^2))
         
-        p_val <- rbind(
-          revised = proj_pvals(fit$std_r_rev,  K, fit$P),
-          semi = proj_pvals(fit$std_r_semi, K, fit$P)
-        )
-        colnames(p_val) <- c("davies", "perm")
+        p_rev <- proj_pvals(fit$std_r_rev, K, fit$P)
+        p_semi <- proj_pvals(fit$std_r_semi, K, fit$P)
         
         h0_test[[res_idx]] <- data.frame(
           n = n,
           d = d,
           sigma = sigma,
-          p_val = p_val
+          p_davies_rev = p_rev[1], 
+          p_perm_rev = p_rev[2],
+          p_davies_semi = p_semi[1], 
+          p_perm_semi = p_semi[2],
+          tau_rev = fit$tau_rev,
+          tau_semi = fit$tau_semi,
+          sig_rev = sqrt(fit$sig2_rev),
+          sig_semi = sqrt(fit$sig2_semi)
         )
         res_idx <- res_idx + 1
       }
@@ -149,5 +168,5 @@ for (sigma in sigma_vec) {
     
 h0_res <- do.call(rbind, h0_test)
 
-out_path <- sprintf("/nas/longleaf/home/shuaiy/project/davies_test/H0/res%d.RData", sim_id)
+out_path <- sprintf("/nas/longleaf/home/shuaiy/project/davies_test/H0/tau0_%d.RData", sim_id)
 save(h0_res, file = out_path)

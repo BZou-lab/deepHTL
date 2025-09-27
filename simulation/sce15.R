@@ -34,28 +34,23 @@ source("lasso.R")
 ###### Scenario 15 ######
 
 n <- 2000
-p <- 20
-sigma <- 3
+p <- 40
+sigma <- 1
 method_vec <- c("rlearner-lasso", "rlearner-xgboost",
                 "weight-xgboost","weight-lasso", "weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
 bx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
-ex <- plogis(0.3*x[,1]^2 - 0.2*sin(x[,2]) + 0.3*x[,3]*x[,4] - 0.1*x[,5]^2)
+ex <- plogis(0.8 * sin(pi * x[,1] * x[,2]) + 0.6 * x[,3] * x[,4] + 0.5 * tanh(x[,5]))
 eps <- rnorm(n, 0, sigma)
 z <- rbinom(n, 1, ex)
-softplus <- function(u, a = 5) log1p(exp(a*u))/a
-R <- qr.Q(qr(matrix(rnorm(p*p), p, p))) 
-u <- x %*% R
-tx <- 2 + 2*plogis(2*sin(3*pi*u[,1]*u[,2]) + (u[,3]-0.5)^2 + softplus(u[,4]+u[,5]-1, a=6)
-                  + 0.7*cos(u[,6]+u[,7]) + 0.25*tanh(u[,8]*u[,9])*u[,10])
+tx <- 2 + 2*(1/(1 + exp(-(2 * sin(pi * x[,1] * x[,2]) + 3 * (x[,3] - 0.5)^2 + pmax(x[,4] + x[,5] - 1, 0) - 1)))) 
+
 y <- bx + (z - 0.5) * tx + eps
 
 xt <- matrix(rnorm(n * p), n, p)
-ut <- xt %*% R
-tt <- 2 + 2*plogis(2*sin(3*pi*ut[,1]*ut[,2]) + (ut[,3]-0.5)^2 + softplus(ut[,4]+ut[,5]-1, a = 6)
-                   + 0.7*cos(ut[,6]+ut[,7]) + 0.25*tanh(ut[,8]*ut[,9])*ut[,10])
+tt <- 2 + 2*(1/(1 + exp(-(2 * sin(pi * xt[,1] * xt[,2]) + 3 * (xt[,3] - 0.5)^2 + pmax(xt[,4] + xt[,5] - 1, 0) - 1))))
 
 obj_tr <- importTrt(x, y, z)
 

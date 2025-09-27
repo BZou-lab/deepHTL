@@ -43,7 +43,7 @@ method_vec <- c("rlearner-lasso", "rlearner-xgboost",
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
 bx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
-ex <- plogis(0.3*x[,1]^2 - 0.2*sin(x[,2]) + 0.3*x[,3]*x[,4] - 0.1*x[,5]^2)
+ex <- plogis(0.8 * sin(pi * x[,1] * x[,2]) + 0.6 * x[,3] * x[,4] + 0.5 * tanh(x[,5]))
 eps <- rnorm(n, 0, sigma)
 z <- rbinom(n, 1, ex)
 tx <- 2 + log(exp(rowSums(x[,1:5, drop=FALSE])) + 1)

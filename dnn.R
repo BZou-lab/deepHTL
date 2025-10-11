@@ -8,15 +8,17 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   y <- object@y
   n <- nrow(X)
   
-  if (is.null(en_dnn_ctrl))
-    en_dnn_ctrl <- list(n.ensemble = 80, verbose = FALSE,
-                        esCtrl = list(
-                          n.hidden = c(64, 32), n.batch = 128, n.epoch = 200,
-                          norm.x = TRUE, norm.y = TRUE, activate = "relu",
-                          accel = "rcpp", l1.reg = 1e-3, plot = FALSE,
-                          learning.rate.adaptive = "adam", early.stop.det = 25
-                        )
+  if (is.null(en_dnn_ctrl)) en_dnn_ctrl <- list(
+    n.ensemble = 100, verbose = FALSE,
+    esCtrl = list(
+      n.hidden = 10:5*2, n.batch = 100, n.epoch = 200,
+      norm.x = TRUE, norm.y = TRUE,
+      activate = "relu", accel = "rcpp",
+      l1.reg = 1e-4, plot = FALSE,
+      learning.rate.adaptive = "adam",
+      early.stop.det = 100
     )
+  )
   
   z_obj <- importDnnet(x = X, y = z_fac)
   z_mod <- do.call("ensemble_dnnet", c(list(object = z_obj), en_dnn_ctrl))

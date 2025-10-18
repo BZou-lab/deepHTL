@@ -37,8 +37,7 @@ source("lasso.R")
 n <- 1000
 p <- 20
 sigma <- 1
-method_vec <- c("rlearner-lasso", "rlearner-xgboost",
-                "weight-xgboost","weight-lasso", "weight-dnn")
+method_vec <- c("weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
@@ -98,5 +97,5 @@ for (method in method_vec) {
 
 df_sce1 <- do.call(rbind, lapply(sce, as.data.frame))
 
-output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce1/res%d.Rdata", batch_id)
+output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce1/res_dnn%d.Rdata", batch_id)
 save(df_sce1, file = output_file)

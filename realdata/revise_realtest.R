@@ -102,7 +102,7 @@ eig <- eigen(Kp, symmetric = TRUE, only.values = TRUE)$values
 eig <- eig[eig > 1e-8]
 
 Q_obs <- as.numeric(t(s) %*% K %*% s)
-B <- 1000
+B <- 20000
 Q_perm <- replicate(B, {
   s_perm <- sample(s, replace = FALSE)
   as.numeric(t(s_perm) %*% K %*% s_perm)

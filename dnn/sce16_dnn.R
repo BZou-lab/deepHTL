@@ -33,11 +33,10 @@ source("lasso.R")
 
 ###### Scenario 16 ######
 
-n <- 4000
+n <- 2000
 p <- 40
 sigma <- 3
-method_vec <- c("rlearner-lasso", "rlearner-xgboost",
-                "weight-xgboost","weight-lasso", "weight-dnn")
+method_vec <- c("weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
@@ -98,5 +97,5 @@ for (method in method_vec) {
 
 df_sce16 <- do.call(rbind, lapply(sce, as.data.frame))
 
-output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce16/res%d.Rdata", batch_id)
+output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce16/res_dnn%d.Rdata", batch_id)
 save(df_sce16, file = output_file)

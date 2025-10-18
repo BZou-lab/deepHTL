@@ -31,13 +31,12 @@ source("dnn.R")
 source("xgboost.R")
 source("lasso.R")
 
-###### Scenario 16 ######
+###### Scenario 2 ######
 
-n <- 4000
+n <- 1000
 p <- 40
-sigma <- 3
-method_vec <- c("rlearner-lasso", "rlearner-xgboost",
-                "weight-xgboost","weight-lasso", "weight-dnn")
+sigma <- 1
+method_vec <- c("weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
@@ -45,12 +44,11 @@ bx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
 ex <- plogis(0.8 * sin(pi * x[,1] * x[,2]) + 0.6 * x[,3] * x[,4] + 0.5 * tanh(x[,5]))
 eps <- rnorm(n, 0, sigma)
 z <- rbinom(n, 1, ex)
-tx <- 2 + 2*(1/(1 + exp(-(2 * sin(pi * x[,1] * x[,2]) + 3 * (x[,3] - 0.5)^2 + pmax(x[,4] + x[,5] - 1, 0) - 1)))) 
-
+tx <- 2 + log(exp(rowSums(x[,1:5, drop=FALSE])) + 1)
 y <- bx + (z - 0.5) * tx + eps
 
 xt <- matrix(rnorm(n * p), n, p)
-tt <- 2 + 2*(1/(1 + exp(-(2 * sin(pi * xt[,1] * xt[,2]) + 3 * (xt[,3] - 0.5)^2 + pmax(xt[,4] + xt[,5] - 1, 0) - 1))))
+tt <- 2 + log(exp(rowSums(xt[,1:5, drop=FALSE])) + 1)
 
 obj_tr <- importTrt(x, y, z)
 
@@ -76,7 +74,7 @@ for (method in method_vec) {
   } 
   
   if (grepl("^rlearner", method)) {
-    logmse <- log(mean((tau_hat - tt)^2))
+    logmse <- logmse <- log(mean((tau_hat - tt)^2))
     sce[[iter]] <- data.frame(n = n, p = p, sigma = sigma,
                               method = method, logmse = logmse)
   } else{
@@ -96,7 +94,7 @@ for (method in method_vec) {
   iter <- iter + 1
 }
 
-df_sce16 <- do.call(rbind, lapply(sce, as.data.frame))
+df_sce2 <- do.call(rbind, lapply(sce, as.data.frame))
 
-output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce16/res%d.Rdata", batch_id)
-save(df_sce16, file = output_file)
+output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce2/res_dnn%d.Rdata", batch_id)
+save(df_sce2, file = output_file)

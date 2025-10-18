@@ -31,13 +31,12 @@ source("dnn.R")
 source("xgboost.R")
 source("lasso.R")
 
-###### Scenario 16 ######
+###### Scenario 15 ######
 
-n <- 4000
+n <- 2000
 p <- 40
-sigma <- 3
-method_vec <- c("rlearner-lasso", "rlearner-xgboost",
-                "weight-xgboost","weight-lasso", "weight-dnn")
+sigma <- 1
+method_vec <- c("weight-dnn")
 
 set.seed(n + p + sigma + 10 * batch_id)
 x <- matrix(rnorm(n * p), n, p)
@@ -96,7 +95,7 @@ for (method in method_vec) {
   iter <- iter + 1
 }
 
-df_sce16 <- do.call(rbind, lapply(sce, as.data.frame))
+df_sce15 <- do.call(rbind, lapply(sce, as.data.frame))
 
-output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce16/res%d.Rdata", batch_id)
-save(df_sce16, file = output_file)
+output_file <- sprintf("/nas/longleaf/home/shuaiy/project/simulation/sce15/res_dnn%d.Rdata", batch_id)
+save(df_sce15, file = output_file)

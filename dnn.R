@@ -11,12 +11,12 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   if (is.null(en_dnn_ctrl)) en_dnn_ctrl <- list(
     n.ensemble = 100, verbose = FALSE,
     esCtrl = list(
-      n.hidden = 10:5*2, n.batch = 100, n.epoch = 200,
+      n.hidden = c(64, 64, 32), n.batch = 64, n.epoch = 300,
       norm.x = TRUE, norm.y = TRUE,
       activate = "relu", accel = "rcpp",
       l1.reg = 1e-4, plot = FALSE,
       learning.rate.adaptive = "adam",
-      early.stop.det = 100
+      early.stop.det = 50
     )
   )
   

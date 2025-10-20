@@ -1,5 +1,5 @@
 library(deepTL); library(MASS);library(glmnet)
-source("dnn")
+source("dnn.R")
 
 setwd("/nas/longleaf/home/shuaiy/project/htdnn")
 load("TLD_Selected.RData")

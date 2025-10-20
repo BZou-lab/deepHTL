@@ -2,24 +2,21 @@ library(rlearner); library(xgboost); library(glmnet)
 
 # ---- weight_xgboost ----
 
-weight_xgboost <- function(object, num_search_rounds = 10, nrounds_max = 1000) {
+weight_xgboost <- function(object, k = 3) {
   x <- as.matrix(object@x)
   y <- object@y
   z <- if (is.factor(object@z)) as.numeric(object@z == levels(object@z)[1]) else as.numeric(object@z)
   
   y_fit <- cvboost(
-    x, y,
-    objective = "reg:squarederror",
-    num_search_rounds = num_search_rounds,
-    ntrees_max = nrounds_max
+    x, y, k_folds = k, 
+    objective = "reg:squarederror"
   )
+  
   mu_hat <- as.numeric(predict(y_fit))
   
   z_fit <- cvboost(
-    x, z,
-    objective = "binary:logistic",
-    num_search_rounds = num_search_rounds,
-    ntrees_max = nrounds_max
+    x, z, k_folds = k, 
+    objective = "binary:logistic"
   )
   e_hat <- as.numeric(predict(z_fit))
   
@@ -27,10 +24,8 @@ weight_xgboost <- function(object, num_search_rounds = 10, nrounds_max = 1000) {
   pseudo_u <- (y - mu_hat) /(z - e_hat) 
   tau_fit_u <- cvboost(
     x, pseudo_u,
-    weights = w,
-    objective = "reg:squarederror",
-    num_search_rounds = num_search_rounds,
-    ntrees_max = nrounds_max
+    weights = w, k_folds = k,
+    objective = "reg:squarederror"
   )
   
   tau0 <- sum((y - mu_hat) * (z - e_hat)) / sum(w)
@@ -59,10 +54,8 @@ weight_xgboost <- function(object, num_search_rounds = 10, nrounds_max = 1000) {
   
   ys0 <- y - tau0 * z
   ys0_fit <- cvboost(
-    x, ys0,
-    objective = "reg:squarederror",
-    num_search_rounds = num_search_rounds,
-    ntrees_max = nrounds_max
+    x, ys0, k_folds = k, 
+    objective = "reg:squarederror"
   )
   ys0_pred <- as.numeric(predict(ys0_fit))
   
@@ -70,9 +63,8 @@ weight_xgboost <- function(object, num_search_rounds = 10, nrounds_max = 1000) {
   tau_fit_r <- cvboost(
     x, pseudo_r,
     weights = w,
+    k_folds = 3, 
     objective = "reg:squarederror",
-    num_search_rounds = num_search_rounds,
-    ntrees_max = nrounds_max
   )
   
   model <- list(

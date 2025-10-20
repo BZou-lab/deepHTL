@@ -1,7 +1,6 @@
-library(deepTL); library(caret); library(glmnet)
+library(deepTL); library(glmnet)
 
-# ---- weight_dnn ----
-weight_dnn <- function(object, en_dnn_ctrl = NULL) {
+weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
   X <- object@x
@@ -9,25 +8,49 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   n <- nrow(X)
   
   if (is.null(en_dnn_ctrl)) en_dnn_ctrl <- list(
-    n.ensemble = 100, verbose = FALSE,
+    n.ensemble = 30, verbose = FALSE,
     esCtrl = list(
-      n.hidden = c(64, 64, 32), n.batch = 64, n.epoch = 300,
+      n.hidden = c(128, 64, 32),
+      n.batch = 256,
+      n.epoch = 120,
       norm.x = TRUE, norm.y = TRUE,
       activate = "relu", accel = "rcpp",
-      l1.reg = 1e-4, plot = FALSE,
+      l1.reg = 1e-3,
+      plot = FALSE,
       learning.rate.adaptive = "adam",
-      early.stop.det = 50
+      early.stop.det = 20
     )
   )
+  K <- k_folds
+  make_stratified_folds <- function(z, K) {
+    z <- as.factor(z)
+    idx_list <- lapply(levels(z), function(lev) which(z == lev))
+    folds <- integer(length(z))
+    for (ix in idx_list) {
+      kseq <- rep(1:K, length.out = length(ix))
+      folds[ix] <- sample(kseq, length(ix))
+    }
+    folds
+  }
+  folds <- make_stratified_folds(z_fac, K)
   
-  z_obj <- importDnnet(x = X, y = z_fac)
-  z_mod <- do.call("ensemble_dnnet", c(list(object = z_obj), en_dnn_ctrl))
-  pz <- predict(z_mod, X)
-  e_hat <- if (is.null(dim(pz))) as.numeric(pz) else as.numeric(pz[, "A"])
+  e_hat <- mu_hat <- rep(NA_real_, n)
+  z_mod_folds <- vector("list", K)
+  y_mod_folds <- vector("list", K)
   
-  y_obj <- importDnnet(x = X, y = y)
-  y_mod <- do.call("ensemble_dnnet", c(list(object = y_obj), en_dnn_ctrl))
-  mu_hat <- as.numeric(predict(y_mod, X))
+  for (k in 1:K) {
+    tr <- which(folds != k); te <- which(folds == k)
+    z_obj <- importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
+    z_mod <- do.call("ensemble_dnnet", c(list(object = z_obj), en_dnn_ctrl))
+    pk <- predict(z_mod, X[te, , drop = FALSE])
+    e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
+    z_mod_folds[[k]] <- z_mod
+    
+    y_obj <- importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
+    y_mod <- do.call("ensemble_dnnet", c(list(object = y_obj), en_dnn_ctrl))
+    mu_hat[te] <- as.numeric(predict(y_mod, X[te, , drop = FALSE]))
+    y_mod_folds[[k]] <- y_mod
+  }
   
   w <- (z_num - e_hat)^2
   
@@ -38,7 +61,7 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   )
   tau_mod_u <- do.call("ensemble_dnnet", c(list(object = semi_dat), en_dnn_ctrl))
   
-  tau0 <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
+  tau0  <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
   beta1 <- coef(lm(y ~ z_num + e_hat))[2]
   
   lambdas <- seq(0, 1, length.out = 21)
@@ -73,7 +96,8 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   tau_mod_r <- do.call("ensemble_dnnet", c(list(object = semi_dat_r), en_dnn_ctrl))
   
   mod <- list(
-    e_mod = z_mod, mu_mod = y_mod,
+    e_mod = z_mod_folds,
+    mu_mod = y_mod_folds,
     unrevised = list(tau_mod = tau_mod_u),
     revised = list(tau_mod = tau_mod_r, ys0_mod = ys0_mod, tau0 = tau0)
   )
@@ -81,11 +105,12 @@ weight_dnn <- function(object, en_dnn_ctrl = NULL) {
   mod
 }
 
-predict.weight_dnn <- function(fit, newx, which = c("both","unrevised","revised")) { 
-  which <- match.arg(which) 
+predict.weight_dnn <- function(fit, newx, which = c("both","unrevised","revised")) {
+  which <- match.arg(which)
   tu <- as.numeric(predict(fit$unrevised$tau_mod, newx))
-  tr <- as.numeric(predict(fit$revised$tau_mod, newx)) + fit$revised$tau0 
-  if (which == "unrevised") return(tu) 
-  if (which == "revised") return(tr) 
+  tr <- as.numeric(predict(fit$revised$tau_mod, newx)) + fit$revised$tau0
+  if (which == "unrevised") return(tu)
+  if (which == "revised") return(tr)
   data.frame(unrevised = tu, revised = tr)
 }
+

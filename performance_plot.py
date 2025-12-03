@@ -110,4 +110,4 @@ legend = fig.legend(handles, labels, loc='center left', bbox_to_anchor=(1.00, 0.
 legend.get_title().set_fontsize(9)
 
 fig.subplots_adjust(right=0.90, hspace=0.55)
-fig.savefig("Simu.png", dpi = 600, bbox_inches='tight')
+fig.savefig("Simu.png", dpi = 300, bbox_inches='tight')

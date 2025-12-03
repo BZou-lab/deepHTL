@@ -11,7 +11,7 @@ keep <- with(TLD, trimws(as.character(DIABETES_DON)) %in% c("0","1") &
                trimws(as.character(CMV_DON)) %in% c("0","1"))
 TLD <- TLD[keep, , drop = FALSE]
 
-tau_vec <- if (is.numeric(res_dnn_oof$tau)) {
+tau_hat <- if (is.numeric(res_dnn_oof$tau)) {
   as.numeric(res_dnn_oof$tau)
 } else if (!is.null(res_dnn_oof$tau$revised)) {
   as.numeric(res_dnn_oof$tau$revised)
@@ -91,4 +91,4 @@ p_hm <- ggplot(clm_long, aes(x = Feature, y = cluster, fill = Mean)) +
   theme(axis.text.x = element_text(angle = 0, hjust = 0.5))
 
 write.csv(clust_summary, "clust_summary.csv")
-ggsave("Cluster.png", p_hm, width = 10, height = 8, dpi = 1600)
+ggsave("Cluster.png", p_hm, width = 10, height = 8, dpi = 300)

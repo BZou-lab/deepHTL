@@ -1,0 +1,14 @@
+Package: deepHTL
+Title: deepHTL for testing and estimating eausal heterogeneous treatment effects
+Version: 0.0.0.9000
+Authors@R: 
+    person("Shuai", "Yuan", , "shuaiy@unc.edu", role = c("aut", "cre"))
+Description: deepHTL: A Revised Deep Learning Semiparametric Regression for Testing and Estimating Causal Heterogeneous Treatment Effects in Observational Studies.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports: deepTL, glmnet, stats, methods, rlearner, xgboost, CompQuadForm, MASS
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

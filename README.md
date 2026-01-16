@@ -13,8 +13,7 @@ devtools::install_github("shuaiy125/deepHTL")
 ## Simulation Setup
 
 ``` r
-suppressMessages(library(deepHTL))
-suppressMessages(library(deepTL))
+library(deepHTL)
 library(MASS)
 
 set.seed(2025)

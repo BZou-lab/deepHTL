@@ -4,12 +4,12 @@
 \alias{weight_dnn}
 \title{Weighted DNN Estimator}
 \usage{
-weight_dnn(object, k_folds = 3, en_dnn_ctrl = NULL)
+weight_dnn(object, k_folds = 5, en_dnn_ctrl = NULL)
 }
 \arguments{
 \item{object}{An object containing the data (usually class \code{Trt}).}
 
-\item{k_folds}{Integer. Number of folds for cross-fitting (default 3).}
+\item{k_folds}{Integer. Number of folds for cross-fitting (default 5).}
 
 \item{en_dnn_ctrl}{List. Control parameters for the ensemble DNN.}
 }

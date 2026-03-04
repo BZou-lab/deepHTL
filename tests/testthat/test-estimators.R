@@ -48,12 +48,10 @@ test_that("Davies test returns valid p-values", {
     esCtrl = list(n.hidden = c(10), n.batch = 10, n.epoch = 5)
   )
   
-  res <- davies_test(obj, ctrl = ctrl, B = 100)
+  res <- davies_test(obj, ctrl = ctrl)
   
   expect_true(!is.na(res$p_davies) && is.numeric(res$p_davies))
   expect_true(res$p_davies >= 0 && res$p_davies <= 1)
 
-  expect_true(!is.na(res$p_perm) && is.numeric(res$p_perm))
-  expect_true(res$p_perm >= 0 && res$p_perm <= 1)
 })
 

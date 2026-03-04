@@ -10,13 +10,13 @@ NULL
 #' bias correction steps.
 #'
 #' @param object An object containing the data (usually class \code{Trt}).
-#' @param k_folds Integer. Number of folds for cross-fitting (default 3).
+#' @param k_folds Integer. Number of folds for cross-fitting (default 5).
 #' @param en_dnn_ctrl List. Control parameters for the ensemble DNN.
 #'
 #' @return An object of class \code{weight_dnn} containing the fitted models.
 #' @export
 
-weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
+weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
   
@@ -47,8 +47,12 @@ weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
     idx_list <- lapply(levels(z), function(lev) which(z == lev))
     folds <- integer(length(z))
     for (ix in idx_list) {
-      kseq <- rep(1:K, length.out = length(ix))
-      folds[ix] <- sample(kseq, length(ix))
+      if(length(ix) < K) {
+         folds[ix] <- sample(1:K, length(ix), replace=TRUE)
+      } else {
+         kseq <- rep(1:K, length.out = length(ix))
+         folds[ix] <- sample(kseq, length(ix))
+      }
     }
     folds
   }
@@ -73,6 +77,7 @@ weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
     y_mod_folds[[k]] <- y_mod
   }
   
+  e_hat <- pmin(pmax(e_hat, 1e-2), 1 - 1e-2)
   w <- (z_num - e_hat)^2
   
   semi_dat <- deepTL::importDnnet(
@@ -83,32 +88,47 @@ weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
   tau_mod_u <- do.call(deepTL::ensemble_dnnet, c(list(object = semi_dat), en_dnn_ctrl))
   
   tau0 <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
-  beta1 <- stats::coef(stats::lm(y ~ z_num + e_hat))[2]
+  beta1 <- tryCatch(stats::coef(stats::lm(y ~ z_num + e_hat))[2], error=function(e) 0)
+  if(is.na(beta1)) beta1 <- 0
   
   lambdas <- seq(0, 1, length.out = 21)
   best <- list(score = Inf, lam = NA)
-  fold <- sample(rep(1:2, length.out = length(z_num)))
+  fold_internal <- sample(rep(1:2, length.out = length(z_num)))
   
   for (lam in lambdas) {
     c_lam <- lam * tau0 + (1 - lam) * beta1
     score <- 0
     for (k in 1:2) {
-      idx_tr <- fold != k; idx_te <- fold == k
+      idx_tr <- fold_internal != k; idx_te <- fold_internal == k
       ystar_tr <- y[idx_tr] - c_lam * z_num[idx_tr]
-      xi_mod <- glmnet::cv.glmnet(as.matrix(X[idx_tr, , drop = FALSE]), ystar_tr, alpha = 1)
-      xi_hat_te <- as.numeric(stats::predict(xi_mod, as.matrix(X[idx_te, , drop = FALSE]), s = "lambda.min"))
-      zr_te <- z_num[idx_te] - e_hat[idx_te]
-      lab_te <- (y[idx_te] - c_lam * z_num[idx_te] - xi_hat_te) / zr_te
-      score <- score + stats::var(lab_te, na.rm = TRUE)
+      xi_mod <- tryCatch(glmnet::cv.glmnet(as.matrix(X[idx_tr, , drop = FALSE]), ystar_tr, alpha = 1), error=function(e) NULL)
+      
+      if(!is.null(xi_mod)) {
+        xi_hat_te <- as.numeric(stats::predict(xi_mod, as.matrix(X[idx_te, , drop = FALSE]), s = "lambda.min"))
+        zr_te <- z_num[idx_te] - e_hat[idx_te]
+        lab_te <- (y[idx_te] - c_lam * z_num[idx_te] - xi_hat_te) / zr_te
+        score <- score + stats::var(lab_te, na.rm = TRUE)
+      } else {
+        score <- Inf
+      }
     }
     if (score < best$score) best <- list(score = score, lam = lam)
   }
   tau0 <- best$lam * tau0 + (1 - best$lam) * beta1
   
-  ys0_obj <- deepTL::importDnnet(x = X, y = y - tau0 * z_num)
-  ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), en_dnn_ctrl))
-  ys0_hat <- as.numeric(deepTL::predict(ys0_mod, X))
+  # --- UPDATED: Cross-fitting for ys0_hat ---
+  ys0_hat <- rep(NA_real_, n)
+  Ystar <- y - tau0 * z_num
   
+  for (k in 1:K) {
+    tr <- which(folds != k); te <- which(folds == k)
+    
+    ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
+    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), en_dnn_ctrl))
+    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
+  }
+  # ------------------------------------------
+
   semi_dat_r <- deepTL::importDnnet(
     x = X,
     y = (y - tau0 * z_num - ys0_hat) / (z_num - e_hat),
@@ -120,7 +140,7 @@ weight_dnn <- function(object, k_folds = 3, en_dnn_ctrl = NULL) {
     e_mod = z_mod_folds,
     mu_mod = y_mod_folds,
     unrevised = list(tau_mod = tau_mod_u),
-    revised = list(tau_mod = tau_mod_r, ys0_mod = ys0_mod, tau0 = tau0)
+    revised = list(tau_mod = tau_mod_r, tau0 = tau0)
   )
   class(mod) <- "weight_dnn"
   mod

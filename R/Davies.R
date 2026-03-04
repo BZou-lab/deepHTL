@@ -14,21 +14,22 @@ NULL
 #'               Must contain slots \code{@x}, \code{@y}, and \code{@z}.
 #' @param ctrl Optional list. Control parameters for the deepTL estimation.
 #'             If NULL, defaults are used.
-#' @param B Integer. Number of permutations for the permutation test (default 20000).
+#' @param k_folds Integer. Number of folds for cross-fitting nuisance parameters (default 5).
 #'
 #' @return A list containing:
 #' \item{Q}{The observed test statistic.}
 #' \item{p_davies}{P-value calculated using the Davies method (mixture of chi-squares).}
-#' \item{p_perm}{P-value calculated using permutation.}
+#' \item{tau_hat}{The estimated average treatment effect.}
 #' @export
-davies_test <- function(object, ctrl = NULL, B = 20000) {
+davies_test <- function(object, ctrl = NULL, k_folds = 5) {
   if (!is.factor(object@z)) {
     object@z <- factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   }
   
   x <- object@x
   y <- object@y
-  z_num <- as.numeric(object@z == "A")
+  z_fac <- object@z
+  z_num <- as.numeric(z_fac == "A")
   n <- nrow(x)
   
   if (is.null(ctrl)) {
@@ -45,46 +46,84 @@ davies_test <- function(object, ctrl = NULL, B = 20000) {
     )
   }
   
-  z_obj <- deepTL::importDnnet(x = x, y = object@z)
-  z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl))
-  e_hat <- deepTL::predict(z_mod, x)[, "A"]
-  e_hat <- pmin(pmax(e_hat, 1e-2), 1 - 1e-2) 
+  K <- k_folds
+  make_stratified_folds <- function(z, K) {
+    z <- as.factor(z)
+    idx_list <- lapply(levels(z), function(lev) which(z == lev))
+    folds <- integer(length(z))
+    for (ix in idx_list) {
+      if(length(ix) < K) {
+         folds[ix] <- sample(1:K, length(ix), replace=TRUE)
+      } else {
+         kseq <- rep(1:K, length.out = length(ix))
+         folds[ix] <- sample(kseq, length(ix))
+      }
+    }
+    folds
+  }
+  folds <- make_stratified_folds(z_fac, K)
   
-  y_obj <- deepTL::importDnnet(x = x, y = y)
-  y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl))
-  mu_hat <- as.numeric(deepTL::predict(y_mod, x))
+  e_hat <- mu_hat <- rep(NA_real_, n)
+  
+  for (k in 1:K) {
+    tr <- which(folds != k); te <- which(folds == k)
+    
+    z_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = z_fac[tr])
+    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl))
+    pk <- deepTL::predict(z_mod, x[te, , drop = FALSE])
+    e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
+    
+    y_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = y[tr])
+    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl))
+    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, x[te, , drop = FALSE]))
+  }
+  
+  e_hat <- pmin(pmax(e_hat, 1e-2), 1 - 1e-2)
   
   w <- (z_num - e_hat)^2
   tau0 <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
-
-  beta1 <- stats::coef(stats::lm(y ~ z_num + e_hat))[2]
+  
+  beta1 <- tryCatch(stats::coef(stats::lm(y ~ z_num + e_hat))[2], error=function(e) 0)
+  if(is.na(beta1)) beta1 <- 0
+  
   lambdas <- seq(0, 1, length.out = 21)
   best <- list(score = Inf, lam = NA)
-  fold <- sample(rep(1:2, length.out = length(z_num)))
+  fold_internal <- sample(rep(1:2, length.out = length(z_num)))
   
   for (lam in lambdas) {
     c_lam <- lam * tau0 + (1 - lam) * beta1
     score <- 0
     for (k in 1:2) {
-      idx_tr <- fold != k; idx_te <- fold == k
+      idx_tr <- fold_internal != k; idx_te <- fold_internal == k
       ystar_tr <- y[idx_tr] - c_lam * z_num[idx_tr]
       
-      xi_mod <- glmnet::cv.glmnet(as.matrix(x[idx_tr, , drop = FALSE]), ystar_tr, alpha = 1)
-      xi_hat_te <- as.numeric(stats::predict(xi_mod, as.matrix(x[idx_te, , drop = FALSE]), s = "lambda.min"))
+      xi_mod <- tryCatch(glmnet::cv.glmnet(as.matrix(x[idx_tr, , drop = FALSE]), ystar_tr, alpha = 1), error=function(e) NULL)
       
-      zr_te <- z_num[idx_te] - e_hat[idx_te]
-      lab_te <- (y[idx_te] - c_lam * z_num[idx_te] - xi_hat_te) / zr_te
-      score <- score + stats::var(lab_te, na.rm = TRUE)
+      if(!is.null(xi_mod)) {
+        xi_hat_te <- as.numeric(stats::predict(xi_mod, as.matrix(x[idx_te, , drop = FALSE]), s = "lambda.min"))
+        zr_te <- z_num[idx_te] - e_hat[idx_te]
+        lab_te <- (y[idx_te] - c_lam * z_num[idx_te] - xi_hat_te) / zr_te
+        score <- score + stats::var(lab_te, na.rm = TRUE)
+      } else {
+        score <- Inf
+      }
     }
     if (score < best$score) best <- list(score = score, lam = lam)
   }
   
   tau0 <- best$lam * tau0 + (1 - best$lam) * beta1
   
+  ys0_hat <- rep(NA_real_, n)
   Ystar <- y - tau0 * z_num
-  ystar_obj <- deepTL::importDnnet(x = x, y = Ystar)
-  ystar_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ystar_obj), ctrl))
-  mu_star_hat <- as.numeric(deepTL::predict(ystar_mod, x))
+  
+  for (k in 1:K) {
+    tr <- which(folds != k); te <- which(folds == k)
+    
+    ys0_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = Ystar[tr])
+    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl))
+    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, x[te, , drop = FALSE]))
+  }
+  mu_star_hat <- ys0_hat
   
   tildeYstar <- (Ystar - mu_star_hat) / (z_num - e_hat)
   tau_star <- sum(w * tildeYstar) / sum(w)
@@ -96,21 +135,21 @@ davies_test <- function(object, ctrl = NULL, B = 20000) {
   std_r_rev <- r_rev / sqrt(v_rev)
   
   P <- diag(n) - tcrossprod(sqrt(w)) / sum(w)
-  Dmat <- as.matrix(stats::dist(x))
+  Dmat <- as.matrix(stats::dist(scale(x, center = TRUE, scale = TRUE)))
   band <- stats::median(Dmat[upper.tri(Dmat, diag = FALSE)])
   if (band == 0) band <- 1 
-  K <- exp(-(Dmat^2) / (2 * band^2))
-  Kp <- P %*% K %*% P
+  
+  K_mat <- exp(-(Dmat^2) / (2 * band^2))
+  Kp <- P %*% K_mat %*% P
   Kp <- 0.5 * (Kp + t(Kp))
   eig <- eigen(Kp, symmetric = TRUE, only.values = TRUE)$values
   eig <- eig[eig > 1e-8]
   s <- std_r_rev
   Q_obs <- as.numeric(t(s) %*% Kp %*% s)
   
-  # Davies P-value
   p_davies <- if (length(eig)) {
     p <- tryCatch(CompQuadForm::davies(Q_obs, lambda = eig)$Qq, error = function(e) NA_real_)
-    if (!is.finite(p) || p < 0) {
+    if (is.na(p) || !is.finite(p) || p < 0 || p > 1) {
       tryCatch(CompQuadForm::liu(Q_obs, lambda = eig), error = function(e2) NA_real_)
     } else {
       p
@@ -119,21 +158,9 @@ davies_test <- function(object, ctrl = NULL, B = 20000) {
     NA_real_
   }
   
-  # Permutation P-value
-  if (B > 0) {
-    Q_perm <- replicate(B, {
-      s_perm <- sample(s, replace = FALSE)
-      as.numeric(t(s_perm) %*% Kp %*% s_perm)
-    })
-    p_perm <- (sum(Q_perm >= Q_obs) + 1) / (B + 1)
-  } else {
-    p_perm <- NA_real_
-  }
-  
   list(
     Q = Q_obs,
     p_davies = p_davies,
-    p_perm = p_perm,
     tau_hat = tau_rev
   )
 }

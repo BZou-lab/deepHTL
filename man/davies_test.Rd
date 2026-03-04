@@ -4,7 +4,7 @@
 \alias{davies_test}
 \title{Davies Test for Heterogeneous Treatment Effects}
 \usage{
-davies_test(object, ctrl = NULL, B = 20000)
+davies_test(object, ctrl = NULL, k_folds = 5)
 }
 \arguments{
 \item{object}{An object containing the data (usually class \code{Trt}).
@@ -13,13 +13,13 @@ Must contain slots \code{@x}, \code{@y}, and \code{@z}.}
 \item{ctrl}{Optional list. Control parameters for the deepTL estimation.
 If NULL, defaults are used.}
 
-\item{B}{Integer. Number of permutations for the permutation test (default 20000).}
+\item{k_folds}{Integer. Number of folds for cross-fitting nuisance parameters (default 5).}
 }
 \value{
 A list containing:
 \item{Q}{The observed test statistic.}
 \item{p_davies}{P-value calculated using the Davies method (mixture of chi-squares).}
-\item{p_perm}{P-value calculated using permutation.}
+\item{tau_hat}{The estimated average treatment effect.}
 }
 \description{
 Performs a hypothesis test for the presence of Heterogeneous Treatment Effects (HTE)

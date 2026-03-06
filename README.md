@@ -103,6 +103,7 @@ Y <- b + (Z - 0.5) * 3 + eps ## Assumae tau = 3
 object <- importTrt(X, Y, Z)
 
 fit <- davies_test(object)
+fit2 <- cv_perm_test(object)
 print(fit)
 ```
 

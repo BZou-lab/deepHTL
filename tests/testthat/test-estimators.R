@@ -36,6 +36,8 @@ test_that("All estimators run and predict correctly", {
 })
 
 test_that("Davies test returns valid p-values", {
+  skip_on_cran()
+  
   set.seed(123)
   n <- 100; p <- 5
   x <- matrix(rnorm(n * p), n, p)
@@ -52,6 +54,39 @@ test_that("Davies test returns valid p-values", {
   
   expect_true(!is.na(res$p_davies) && is.numeric(res$p_davies))
   expect_true(res$p_davies >= 0 && res$p_davies <= 1)
+})
 
+test_that("Cross-fitted permutation test returns valid structure and p-values", {
+  skip_on_cran() 
+  
+  set.seed(123)
+  n <- 100; p <- 5
+  x <- matrix(rnorm(n * p), n, p)
+  z <- as.factor(rbinom(n, 1, 0.5)); levels(z) <- c("A", "B")
+  y <- rnorm(n)
+  obj <- deepTL::importTrt(x = x, y = y, z = z)
+  
+  # Tiny network and ensemble controls for fast testing
+  ctrl <- list(
+    n.ensemble = 2, verbose = FALSE,
+    esCtrl = list(n.hidden = c(10), n.batch = 10, n.epoch = 2)
+  )
+  
+  # Run the permutation test with minimal folds and B
+  res <- cv_perm_test(obj, k_folds = 2, B = 5, en_dnn_ctrl = ctrl)
+  
+  # Check structure
+  expect_type(res, "list")
+  expect_named(res, c("unrevised", "revised"))
+  
+  # Check unrevised outputs
+  expect_true(is.numeric(res$unrevised$obs_mse))
+  expect_true(is.numeric(res$unrevised$p_value))
+  expect_true(res$unrevised$p_value >= 0 && res$unrevised$p_value <= 1)
+  
+  # Check revised outputs
+  expect_true(is.numeric(res$revised$obs_mse))
+  expect_true(is.numeric(res$revised$p_value))
+  expect_true(res$revised$p_value >= 0 && res$revised$p_value <= 1)
 })
 

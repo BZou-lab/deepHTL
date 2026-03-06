@@ -80,13 +80,6 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL) {
   e_hat <- pmin(pmax(e_hat, 1e-2), 1 - 1e-2)
   w <- (z_num - e_hat)^2
   
-  semi_dat <- deepTL::importDnnet(
-    x = X,
-    y = (y - mu_hat) / (z_num - e_hat),
-    w = w
-  )
-  tau_mod_u <- do.call(deepTL::ensemble_dnnet, c(list(object = semi_dat), en_dnn_ctrl))
-  
   tau0 <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
   beta1 <- tryCatch(stats::coef(stats::lm(y ~ z_num + e_hat))[2], error=function(e) 0)
   if(is.na(beta1)) beta1 <- 0
@@ -116,7 +109,6 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL) {
   }
   tau0 <- best$lam * tau0 + (1 - best$lam) * beta1
   
-  # --- UPDATED: Cross-fitting for ys0_hat ---
   ys0_hat <- rep(NA_real_, n)
   Ystar <- y - tau0 * z_num
   
@@ -127,20 +119,28 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL) {
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), en_dnn_ctrl))
     ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
   }
-  # ------------------------------------------
 
-  semi_dat_r <- deepTL::importDnnet(
-    x = X,
-    y = (y - tau0 * z_num - ys0_hat) / (z_num - e_hat),
-    w = w
-  )
-  tau_mod_r <- do.call(deepTL::ensemble_dnnet, c(list(object = semi_dat_r), en_dnn_ctrl))
+  Ytilde_u <- (y - mu_hat) / (z_num - e_hat)
+  Ytilde_r <- (y - tau0 * z_num - ys0_hat) / (z_num - e_hat)
+  
+  tau_mod_u_folds <- vector("list", K)
+  tau_mod_r_folds <- vector("list", K)
+  
+  for (k in 1:K) {
+    tr <- which(folds != k)
+    
+    obj_u_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_u[tr], w = w[tr])
+    tau_mod_u_folds[[k]] <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u_tr), en_dnn_ctrl))
+    
+    obj_r_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_r[tr], w = w[tr])
+    tau_mod_r_folds[[k]] <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r_tr), en_dnn_ctrl))
+  }
   
   mod <- list(
-    e_mod = z_mod_folds,
-    mu_mod = y_mod_folds,
-    unrevised = list(tau_mod = tau_mod_u),
-    revised = list(tau_mod = tau_mod_r, tau0 = tau0)
+    folds = folds,
+    nuisance = list(X = X, y = y, z_num = z_num, e_hat = e_hat, mu_hat = mu_hat, ys0_hat = ys0_hat, w = w),
+    unrevised = list(tau_mod_folds = tau_mod_u_folds),
+    revised = list(tau_mod_folds = tau_mod_r_folds, tau0 = tau0)
   )
   class(mod) <- "weight_dnn"
   mod
@@ -157,11 +157,20 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL) {
 #' @export
 predict.weight_dnn <- function(object, newx, which = c("both", "unrevised", "revised"), ...) {
   which <- match.arg(which)
-  tu <- as.numeric(deepTL::predict(object$unrevised$tau_mod, newx))
-  tr <- as.numeric(deepTL::predict(object$revised$tau_mod, newx)) + object$revised$tau0
+  
+  K <- length(object$unrevised$tau_mod_folds)
+  
+  pred_u_mat <- sapply(1:K, function(k) {
+    as.numeric(deepTL::predict(object$unrevised$tau_mod_folds[[k]], newx))
+  })
+  tu <- rowMeans(pred_u_mat)
+  
+  pred_r_mat <- sapply(1:K, function(k) {
+    as.numeric(deepTL::predict(object$revised$tau_mod_folds[[k]], newx))
+  })
+  tr <- rowMeans(pred_r_mat) + object$revised$tau0
   
   if (which == "unrevised") return(tu)
   if (which == "revised") return(tr)
   data.frame(unrevised = tu, revised = tr)
 }
-

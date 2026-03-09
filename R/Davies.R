@@ -11,7 +11,7 @@ NULL
 #' using the Davies method on standardized residuals from a bias-corrected Deep Neural Network model.
 #'
 #' @param object An object containing the data (usually class \code{Trt}).
-#'               Must contain slots \code{@x}, \code{@y}, and \code{@z}.
+#'                Must contain slots \code{@x}, \code{@y}, and \code{@z}.
 #' @param ctrl Optional list. Control parameters for the deepTL estimation.
 #'             If NULL, defaults are used.
 #' @param k_folds Integer. Number of folds for cross-fitting nuisance parameters (default 5).

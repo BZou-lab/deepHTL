@@ -117,14 +117,16 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
   Ytilde_u <- (y - mu_hat) / (z_num - e_hat)
   Ytilde_r <- (y - tau0 * z_num - ys0_hat) / (z_num - e_hat)
   
+  folds_stage2 <- sample(rep(1:K, length.out = n))
+  
   obs_mse_u_folds <- numeric(K)
   obs_mse_r_folds <- numeric(K)
   perm_mse_u_folds <- matrix(0, nrow = K, ncol = B)
   perm_mse_r_folds <- matrix(0, nrow = K, ncol = B)
   
   for (k in 1:K) {
-    tr <- which(folds != k)
-    te <- which(folds == k)
+    tr <- which(folds_stage2 != k)
+    te <- which(folds_stage2 == k)
     
     obj_u_tr <- importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_u[tr], w = w[tr])
     mod_u_tr <- do.call(ensemble_dnnet, c(list(object = obj_u_tr), en_dnn_ctrl))
@@ -141,7 +143,6 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
     idx_0_te <- which(z_num[te] == 0)
     n_te <- length(te)
     
-    # Inner permutation loop
     for (b in 1:B) {
       shuffled_idx <- numeric(n_te)
       if(length(idx_1_te) > 0) shuffled_idx[idx_1_te] <- sample(idx_1_te)

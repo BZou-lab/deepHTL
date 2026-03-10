@@ -118,7 +118,6 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
   
   for (k in 1:K) {
     tr <- which(folds != k); te <- which(folds == k)
-    
     ys0_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = Ystar[tr])
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl))
     ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, x[te, , drop = FALSE]))

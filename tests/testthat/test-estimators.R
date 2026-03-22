@@ -73,7 +73,7 @@ test_that("Cross-fitted permutation test returns valid structure and p-values", 
   )
   
   # Run the permutation test with minimal folds and B
-  res <- cv_perm_test(obj, k_folds = 2, B = 5, en_dnn_ctrl = ctrl)
+  res <- cv_perm_test(obj, k_folds = 5, B = 100, en_dnn_ctrl = ctrl)
   
   # Check structure
   expect_type(res, "list")

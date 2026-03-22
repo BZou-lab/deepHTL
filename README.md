@@ -90,9 +90,9 @@ print(log_mse_results)
 ## Testing HTE using deepHTL
 
 ``` r
-n <- 2000
-d <- 20
-sigma <- 1
+n <- 1000
+d <- 40
+sigma <- 3
 set.seed(4231)
 X <- mvrnorm(n, mu = rep(0, d), Sigma = diag(d))
 b <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] * X[, 5]

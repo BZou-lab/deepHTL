@@ -2,16 +2,16 @@
 % Please edit documentation in R/Perm_Test.R
 \name{cv_perm_test}
 \alias{cv_perm_test}
-\title{Cross-Fitted Permutation Test for Treatment Heterogeneity (Nested Half-Half)}
+\title{Cross-Fitted Permutation Test for Treatment Heterogeneity (Same-Fold)}
 \usage{
 cv_perm_test(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL)
 }
 \arguments{
 \item{object}{An object of class \code{Trt} containing the covariates, outcome, and treatment assignment.}
 
-\item{k_folds}{Integer. The number of nested folds for Stage 2 cross-fitting. Default is 5.}
+\item{k_folds}{Integer. The number of folds for cross-fitting. Default is 5.}
 
-\item{B}{Integer. The number of permutation shuffles to perform per fold. Default is 1000.}
+\item{B}{Integer. The number of permutation shuffles to perform. Default is 1000.}
 
 \item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function.}
 }
@@ -20,7 +20,8 @@ A list containing two sub-lists (\code{unrevised} and \code{revised}), each prov
 observed mean squared error (\code{obs_mse}) and the resulting permutation p-value (\code{p_value}).
 }
 \description{
-Performs a nested half-half cross-fitted permutation test to evaluate
-treatment effect heterogeneity. Stage 1 uses a strict 2-fold split to isolate nuisance
-predictions. Stage 2 performs a nested k-fold permutation test within each quarantined half.
+Performs a same-fold cross-fitted permutation test to evaluate
+treatment effect heterogeneity. Uses a single set of folds across all stages
+to estimate nuisance parameters, adjust the baseline, and locally permute
+the Stage 2 predictions to preserve weight-variance alignment.
 }

@@ -34,9 +34,9 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
   
   if (is.null(ctrl)) {
     ctrl <- list(
-      n.ensemble = 100, verbose = FALSE,
+      n.ensemble = 50, verbose = FALSE,
       esCtrl = list(
-        n.hidden = c(10, 5) * 2, n.batch = 100, n.epoch = 200,
+        n.hidden = c(128, 64, 32), n.batch = 256, n.epoch = 120,
         norm.x = TRUE, norm.y = TRUE,
         activate = "relu", accel = "rcpp",
         l1.reg = 1e-4, plot = FALSE,

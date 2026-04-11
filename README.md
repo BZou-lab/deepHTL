@@ -1,6 +1,6 @@
 # deepHTL
 
-Deep Heterogeneous Treatment Learning: An efficient semiparametric framework for estimating and testing heterogeneous treatment effects (HTE). It integrates Robinson transformations with bias-correction steps using ensemble DNNs, XGBoost, Kernel Ridge Regression, and Lasso.
+Deep Heterogeneous Treatment Learning: An efficient semiparametric framework for estimating and testing heterogeneous treatment effects (HTE). It integrates Robinson transformations with bias-correction steps using ensemble Bagged-DNNs, XGBoost, Kernel Ridge Regression, and Lasso.
 
 ## Installation
 
@@ -17,17 +17,17 @@ library(deepHTL)
 library(MASS)
 
 set.seed(2025)
-n <- 2000
+n <- 1000
 p <- 20
 sigma <- 1
 
 x <- matrix(rnorm(n * p), n, p)
-bx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
+fx <- log(abs(x[,1]) + 1) - x[,2]^2 + sin(x[,3]) + 0.5*x[,4]*x[,5]
 ex <- plogis(0.8 * sin(pi * x[,1] * x[,2]) + 0.6 * x[,3] * x[,4] + 0.5 * tanh(x[,5]))
 eps <- rnorm(n, 0, sigma)
 z <- rbinom(n, 1, ex)
 tx <- -1 + x[,1] * x[,2] + cos(x[, 3])^2 + max(x[,4] - x[,5], 0)
-y <- bx + (z - 0.5) * tx + eps
+y <- fx + z * tx + eps
 obj_tr <- importTrt(x, y, z)
 
 nt <- 2000
@@ -91,15 +91,15 @@ print(log_mse_results)
 
 ``` r
 n <- 1000
-d <- 40
-sigma <- 3
+d <- 20
+sigma <- 1
 set.seed(4231)
 X <- mvrnorm(n, mu = rep(0, d), Sigma = diag(d))
-b <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] * X[, 5]
+f <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] * X[, 5]
 e <- plogis(0.8 * sin(pi * X[,1] * X[,2]) + 0.6 * X[,3] * X[,4] + 0.5 * tanh(X[,5]))
 Z <- rbinom(n, 1, e)
 eps <- rnorm(n, 0, sigma)
-Y <- b + (Z - 0.5) * 3 + eps ## Assumae tau = 3
+Y <- f + Z  * 3 + eps ## Assumae tau = 3
 object <- importTrt(X, Y, Z)
 
 fit <- davies_test(object)

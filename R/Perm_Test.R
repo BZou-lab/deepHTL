@@ -33,7 +33,7 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
         n.epoch = 120,
         norm.x = TRUE, norm.y = TRUE,
         activate = "relu", accel = "rcpp",
-        l1.reg = 1e-4,
+        l1.reg = 1e-5,
         plot = FALSE,
         learning.rate.adaptive = "adam",
         early.stop.det = 20

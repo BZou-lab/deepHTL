@@ -7,7 +7,7 @@ Deep Heterogeneous Treatment Learning: An efficient semiparametric framework for
 You can install the development version of deepHTL from GitHub using the following commands:
 
 ``` r
-devtools::install_github("shuaiy125/deepHTL")
+devtools::install_github("BZou-lab/deepHTL")
 ```
 
 ## Simulation Setup

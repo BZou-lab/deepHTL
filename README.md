@@ -107,8 +107,56 @@ fit2 <- cv_perm_test(object)
 print(fit)
 ```
 
+## Screening for effect modifiers
+
+Once the global test rejects, `cv_perm_vsel()` asks *which* covariates the
+heterogeneity runs along. For each covariate it permutes that column of the
+held-out design and re-evaluates the cross-fitted stage-2 model, reusing the
+fits rather than refitting anything. Two p-values are reported per covariate:
+
+- `p_marg` permutes the covariate marginally. Under correlated covariates this
+  scheme over-rejects nulls that are merely correlated with true modifiers,
+  because the permuted rows fall outside the support of the data and the model
+  extrapolates.
+- `p_cond` permutes only within quantile strata of a random-forest fit of the
+  covariate on its correlated neighbours (`|cor| > cor_threshold`), which
+  approximates sampling from `P(X_j | X_-j)` and restores type I error
+  control. This is the recommended reading when covariates are correlated;
+  with independent covariates the two schemes coincide exactly.
+
+The returned data frame also carries the conditioning-set size `n_cond`,
+inflation ratios, and importance ranks.
+
+``` r
+## X1..X10 equicorrelated at rho = 0.5; only X1..X5 modify tau,
+## so X6..X10 are correlated nulls and X11..X20 independent nulls.
+n <- 2000; d <- 20; rho <- 0.5
+Sigma <- diag(d); Sigma[1:10, 1:10] <- rho; diag(Sigma) <- 1
+set.seed(4231)
+X <- mvrnorm(n, rep(0, d), Sigma)
+f <- log(abs(X[,1]) + 1) - X[,2]^2 + sin(X[,3]) + 0.5 * X[,4] * X[,5]
+e <- plogis(0.8 * sin(pi * X[,1] * X[,2]) + 0.6 * X[,3] * X[,4] + 0.5 * tanh(X[,5]))
+Z <- rbinom(n, 1, e)
+tau <- -1 + X[,1] * X[,2] + cos(X[,3])^2 + pmax(X[,4] - X[,5], 0)
+Y <- f + Z * tau + rnorm(n, 0, 1)
+object <- importTrt(X, Y, Z)
+
+vs <- cv_perm_vsel(object, k_folds = 5, B = 500,
+                   cor_threshold = 0.2, n_strata = 5, n_cores = 4)
+vs$screen[order(vs$screen$p_cond), ]
+```
+
+Compute note: the screen evaluates `B` permutations per covariate and scheme
+against an ensemble DNN, so it is the most expensive step of the pipeline.
+`chunk` batches permuted copies into single `predict()` calls and `n_cores`
+parallelizes over covariates (forking; not available on Windows).
+
 ## References
 
 Mi, X. et al. (2021). A deep learning semiparametric regression for adjusting complex confounding structures. The Annals of Applied Statistics, 15(3):1086–1100.
 
 Nie, X. and Wager, S. (2021). Quasi-oracle estimation of heterogeneous treatment effects. Biometrika, 108(2):299–319.
+
+Strobl, C., Boulesteix, A.-L., Kneib, T., Augustin, T. and Zeileis, A. (2008). Conditional variable importance for random forests. BMC Bioinformatics, 9:307.
+
+Berrett, T. B., Wang, Y., Barber, R. F. and Samworth, R. J. (2020). The conditional permutation test for independence while controlling for confounders. Journal of the Royal Statistical Society, Series B, 82(1):175–197.

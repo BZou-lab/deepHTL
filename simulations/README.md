@@ -25,8 +25,9 @@ The covariate design is chosen with environment variables:
 |---|---|---|
 | `cm_test.R <cfg> <rep>` with `TAU_TYPE=tau0|tau3|S2` | kernel score (Davies) and permutation p-values, unrevised and revised | Table 1, Web Table 3 |
 | `cm_varsel.R <cfg> <rep>` | covariate-specific screen, marginal and conditional p-values | Table 2, Web Tables 7 and 9 |
-| `cm_est.R <cfg> <rep>` | log-MSE of deepHTL, R-DNN and six competitors on identical data | Web Tables 5 and 8 |
-| `cm_est_rl.R <cfg> <rep>` | log-MSE of the Lasso, XGBoost and KRR variants (unrevised and revised) on the same data | Web Table 4 |
+| `cm_est.R <cfg> <rep>` with `TAU_TYPE=S2|S1` (default S2, the HTE effect function; S1 = the simple effect function) | log-MSE of deepHTL, R-DNN and six competitors on identical data | Web Tables 5 and 8 |
+| `cm_est_rl.R <cfg> <rep>` with `TAU_TYPE=S2|S1` | log-MSE of the Lasso and KRR R-learner variants (unrevised and revised) on the same data | Web Table 4 |
+| `cm_est_xgb.R <cfg> <rep>` with `TAU_TYPE=S2|S1` | log-MSE of the XGBoost variant (unrevised and revised) on the same data, via `cvboost2.R` | Web Table 4 |
 | `cm_aggregate.R` | summary CSV files from `out/` | |
 
 `lib/` holds the estimator code exactly as used for the paper (`dnn.R` is the
@@ -34,7 +35,10 @@ bagged-DNN implementation of deepHTL and R-DNN; `lasso.R`, `xgboost.R`,
 `kern.R` the alternative base learners). `cvboost2.R` re-implements
 `rlearner::cvboost` on the current xgboost API. `slurm/` contains the array
 job scripts and `launch_cm.sh`, the submission order used on our cluster; edit
-the module and library lines for your site. `SMOKE=1` shrinks every script to
-a minutes-long test run.
+the module and library lines for your site. `slurm/cm_multi.sh` runs several
+replications per array task (env `SCRIPT`, `PREFIX`, `OUT_DIR`, `CFG`, `RPT`) for
+clusters that cap the number of queued array tasks; it skips replications whose
+output file already exists. `SMOKE=1` shrinks every script to a minutes-long
+test run.
 
 Dependencies: deepTL, MASS, glmnet, CompQuadForm, grf, ranger, dbarts, xgboost.

@@ -11,15 +11,16 @@ source("lib/dnn.R")
 source("cm_dgp.R")
 SMOKE <- identical(Sys.getenv("SMOKE"), "1")
 OUT_DIR <- Sys.getenv("OUT_DIR", "out/est")
+TAU_TYPE <- Sys.getenv("TAU_TYPE", "S2")   # S2 = HTE effect function (paper), S1 = simple effect function; use a different OUT_DIR per tau type
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 has_dbarts <- requireNamespace("dbarts", quietly = TRUE) && !SMOKE
 cfg <- CM_CONFIG[cfg_id, ]; n <- cfg$n; p <- cfg$p; sigma <- cfg$sigma
 if (SMOKE) n <- 300
 ntree <- if (SMOKE) 50 else 500
-cat(sprintf("cfg %d: n=%d p=%d sigma=%g | Scenario II | rep %d\n", cfg_id, n, p, sigma, rep_id))
+cat(sprintf("cfg %d: n=%d p=%d sigma=%g | tau=%s | rep %d\n", cfg_id, n, p, sigma, TAU_TYPE, rep_id))
 set.seed(100000 * cfg_id + 1000 * rep_id + 11)
-d <- gen_cm(n, p, sigma, "S2"); x <- d$X; y <- d$Y; z <- d$Z
-xt <- cm_X(n, p); tt <- cm_tau(xt, "S2")
+d <- gen_cm(n, p, sigma, TAU_TYPE); x <- d$X; y <- d$Y; z <- d$Z
+xt <- cm_X(n, p); tt <- cm_tau(xt, TAU_TYPE)
 logmse <- function(pred) log(mean((pred - tt)^2))
 res <- list()
 add <- function(m, pred) res[[length(res) + 1]] <<- data.frame(cfg_id = cfg_id, rep_id = rep_id, n = n, p = p, sigma = sigma, method = m, logmse = logmse(pred))

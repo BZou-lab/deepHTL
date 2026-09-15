@@ -160,3 +160,8 @@ Nie, X. and Wager, S. (2021). Quasi-oracle estimation of heterogeneous treatment
 Strobl, C., Boulesteix, A.-L., Kneib, T., Augustin, T. and Zeileis, A. (2008). Conditional variable importance for random forests. BMC Bioinformatics, 9:307.
 
 Berrett, T. B., Wang, Y., Barber, R. F. and Samworth, R. J. (2020). The conditional permutation test for independence while controlling for confounders. Journal of the Royal Statistical Society, Series B, 82(1):175–197.
+
+## Simulation code
+
+The scripts that reproduce the simulation studies of the paper are in
+[`simulations/`](simulations/), with their own README.

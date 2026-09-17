@@ -57,7 +57,6 @@ en_dnn_ctrl <- list(
 ## Estimating HTE using deepHTL
 
 ``` r
-## Select the L1 penalty by cross-validating the R-loss
 set.seed(4231)
 nuis <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl)$nuisance   # cross-fitted e_hat and mu_hat
 K <- 3
@@ -150,9 +149,9 @@ The returned data frame also carries the conditioning-set size `n_cond`,
 inflation ratios, and importance ranks.
 
 ``` r
-## X1..X10 equicorrelated at rho = 0.5; only X1..X5 modify tau,
+## X1..X10 equicorrelated at rho = 0.3; only X1..X5 modify tau,
 ## so X6..X10 are correlated nulls and X11..X20 independent nulls.
-n <- 2000; d <- 20; rho <- 0.5
+n <- 2000; d <- 20; rho <- 0.3
 Sigma <- diag(d); Sigma[1:10, 1:10] <- rho; diag(Sigma) <- 1
 set.seed(4231)
 X <- mvrnorm(n, rep(0, d), Sigma)

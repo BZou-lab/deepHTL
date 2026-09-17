@@ -57,6 +57,28 @@ en_dnn_ctrl <- list(
 ## Estimating HTE using deepHTL
 
 ``` r
+## Select the L1 penalty by cross-validating the R-loss
+set.seed(4231)
+nuis <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl)$nuisance   # cross-fitted e_hat and mu_hat
+K <- 3
+folds <- sample(rep(seq_len(K), length.out = n))
+cv_rloss_dnn <- function(l1) {
+  ctrl <- en_dnn_ctrl
+  ctrl$esCtrl$l1.reg <- l1
+  loss <- 0
+  for (k in seq_len(K)) {
+    tr <- folds != k
+    te <- folds == k
+    fit <- weight_dnn(importTrt(x[tr, ], y[tr], z[tr]), en_dnn_ctrl = ctrl)
+    tau_te <- predict(fit, x[te, ], which = "revised")
+    loss <- loss + sum((y[te] - nuis$mu_hat[te] - tau_te * (z[te] - nuis$e_hat[te]))^2)
+  }
+  loss / n
+}
+l1_grid <- c(1e-5, 1e-4, 1e-3)
+cv_l1 <- sapply(l1_grid, cv_rloss_dnn)
+en_dnn_ctrl$esCtrl$l1.reg <- l1_grid[which.min(cv_l1)]
+
 set.seed(4231)
 fit_deepHTL <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl)
 tau_deepHTL <- predict(fit_deepHTL, xt, which = "both")

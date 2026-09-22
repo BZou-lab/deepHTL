@@ -12,7 +12,9 @@ cv_perm_vsel(
   n_strata = 5,
   chunk = 50,
   n_cores = 1,
-  en_dnn_ctrl = NULL
+  en_dnn_ctrl = NULL,
+  tune = NULL,
+  n_tune = 5
 )
 }
 \arguments{
@@ -37,6 +39,15 @@ For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 seeding.}
 
 \item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function.}
+
+\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
+\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
+settings of every network are selected within each training fold by the mean out-of-bag
+loss of a pilot ensemble, log-loss for the propensity network, squared error for the
+outcome network and weighted squared error (the R-loss on held-out data) for the
+second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+
+\item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 }
 \value{
 A list with two elements. \code{screen} is a data.frame with one
@@ -46,7 +57,8 @@ conditioning set \code{S_j}), the permutation p-values \code{p_marg} and
 (mean permuted loss over observed loss), and the within-sample importance
 ranks \code{rank_marg} and \code{rank_cond} (1 = most important; ties in p
 broken by inflation). \code{obs_loss} is the observed weighted loss of the
-cross-fitted stage-2 model. Covariates whose conditional distribution given
+cross-fitted stage-2 model. \code{tuning} lists the settings selected in each
+fold when \code{tune} is used, otherwise it is \code{NULL}. Covariates whose conditional distribution given
 the others is degenerate (e.g. deterministic functions of other columns)
 should be removed before screening.
 }

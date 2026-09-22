@@ -46,6 +46,13 @@
 #' For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 #' seeding.
 #' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function.
+#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
+#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
+#'   settings of every network are selected within each training fold by the mean out-of-bag
+#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
+#'   outcome network and weighted squared error (the R-loss on held-out data) for the
+#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
 #'
 #' @return A list with two elements. \code{screen} is a data.frame with one
 #' row per covariate: \code{variable}, \code{n_cond} (size of the
@@ -54,7 +61,8 @@
 #' (mean permuted loss over observed loss), and the within-sample importance
 #' ranks \code{rank_marg} and \code{rank_cond} (1 = most important; ties in p
 #' broken by inflation). \code{obs_loss} is the observed weighted loss of the
-#' cross-fitted stage-2 model. Covariates whose conditional distribution given
+#' cross-fitted stage-2 model. \code{tuning} lists the settings selected in each
+#' fold when \code{tune} is used, otherwise it is \code{NULL}. Covariates whose conditional distribution given
 #' the others is degenerate (e.g. deterministic functions of other columns)
 #' should be removed before screening.
 #'
@@ -78,7 +86,7 @@
 #' @export
 cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
                          n_strata = 5, chunk = 50, n_cores = 1,
-                         en_dnn_ctrl = NULL) {
+                         en_dnn_ctrl = NULL, tune = NULL, n_tune = 5) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
 
@@ -110,18 +118,23 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
   ## ---- stage 1: cross-fitted nuisances -------------------------------------
   folds <- sample(rep(seq_len(k_folds), length.out = n))
   e_hat <- mu_hat <- rep(NA_real_, n)
+  tune_log <- list()
 
   for (k in seq_len(k_folds)) {
     tr <- folds != k
     te <- folds == k
 
     z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
-    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), en_dnn_ctrl))
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
+    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
     pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
     y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), en_dnn_ctrl))
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
+    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
     mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
   }
 
@@ -136,7 +149,9 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
     tr <- folds != k
     te <- folds == k
     o <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde[tr], w = w[tr])
-    m <- do.call(deepTL::ensemble_dnnet, c(list(object = o), en_dnn_ctrl))
+    ctrl_m <- tune_en_dnn_ctrl(o, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_m, k, "stage2")
+    m <- do.call(deepTL::ensemble_dnnet, c(list(object = o), ctrl_m))
     pred_obs[te] <- as.numeric(deepTL::predict(m, X[te, , drop = FALSE]))
     stage2[[k]] <- m
   }
@@ -244,5 +259,6 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
   screen$rank_marg <- rank_by(screen$p_marg, screen$infl_marg)
   screen$rank_cond <- rank_by(screen$p_cond, screen$infl_cond)
 
-  list(screen = screen, obs_loss = obs_loss)
+  list(screen = screen, obs_loss = obs_loss,
+       tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL)
 }

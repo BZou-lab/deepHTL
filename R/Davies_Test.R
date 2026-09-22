@@ -15,13 +15,21 @@ NULL
 #' @param ctrl Optional list. Control parameters for the deepTL estimation.
 #'             If NULL, defaults are used.
 #' @param k_folds Integer. Number of folds for cross-fitting nuisance parameters (default 5).
+#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
+#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
+#'   settings of every network are selected within each training fold by the mean out-of-bag
+#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
+#'   outcome networks and weighted squared error (the R-loss on held-out data) for the
+#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
 #'
 #' @return A list containing:
 #' \item{Q}{The observed test statistic.}
 #' \item{p_davies}{P-value calculated using the Davies method (mixture of chi-squares).}
 #' \item{tau_hat}{The estimated average treatment effect.}
+#' \item{tuning}{Settings selected in each fold when `tune` is used, otherwise `NULL`.}
 #' @export
-davies_test <- function(object, ctrl = NULL, k_folds = 5) {
+davies_test <- function(object, ctrl = NULL, k_folds = 5, tune = NULL, n_tune = 5) {
   if (!is.factor(object@z)) {
     object@z <- factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   }
@@ -62,6 +70,7 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
     folds
   }
   folds <- make_stratified_folds(z_fac, K)
+  tune_log <- list()
   
   e_hat <- mu_hat <- rep(NA_real_, n)
   
@@ -69,12 +78,16 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
     tr <- which(folds != k); te <- which(folds == k)
     
     z_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = z_fac[tr])
-    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl))
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
+    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
     pk <- deepTL::predict(z_mod, x[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
     
     y_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = y[tr])
-    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl))
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
+    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
     mu_hat[te] <- as.numeric(deepTL::predict(y_mod, x[te, , drop = FALSE]))
   }
   
@@ -119,7 +132,9 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
   for (k in 1:K) {
     tr <- which(folds != k); te <- which(folds == k)
     ys0_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = Ystar[tr])
-    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl))
+    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
+    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
     ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, x[te, , drop = FALSE]))
   }
   mu_star_hat <- ys0_hat
@@ -160,6 +175,7 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5) {
   list(
     Q = Q_obs,
     p_davies = p_davies,
-    tau_hat = tau_rev
+    tau_hat = tau_rev,
+    tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL
   )
 }

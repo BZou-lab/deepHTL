@@ -9,14 +9,22 @@
 #' @param k_folds Integer. The number of folds for cross-fitting. Default is 5.
 #' @param B Integer. The number of permutation shuffles to perform. Default is 1000.
 #' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function.
+#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
+#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
+#'   settings of every network are selected within each training fold by the mean out-of-bag
+#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
+#'   outcome networks and weighted squared error (the R-loss on held-out data) for the
+#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
 #' 
 #' @return A list containing two sub-lists (`unrevised` and `revised`), each providing the 
-#' observed mean squared error (`obs_mse`) and the resulting permutation p-value (`p_value`).
+#' observed mean squared error (`obs_mse`) and the resulting permutation p-value (`p_value`),
+#' and `tuning`, the settings selected in each fold when `tune` is used (`NULL` otherwise).
 #' 
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
 #' @export
-cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
+cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
   
@@ -43,18 +51,23 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
   
   folds <- sample(rep(1:k_folds, length.out = n))
   e_hat <- mu_hat <- rep(NA_real_, n)
+  tune_log <- list()
   
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
     
     z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
-    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), en_dnn_ctrl))
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
+    z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
     pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
     
     y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), en_dnn_ctrl))
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
+    y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
     mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
   }
   
@@ -106,7 +119,9 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
     te <- folds == k
     
     ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
-    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), en_dnn_ctrl))
+    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
+    ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
     ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
   }
 
@@ -121,11 +136,15 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
     te <- folds == k
     
     obj_u_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_u[tr], w = w[tr])
-    mod_u_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u_tr), en_dnn_ctrl))
+    ctrl_mod_u_tr <- tune_en_dnn_ctrl(obj_u_tr, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_u_tr, k, "stage2_unrevised")
+    mod_u_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u_tr), ctrl_mod_u_tr))
     pred_u[te] <- as.numeric(deepTL::predict(mod_u_tr, X[te, , drop = FALSE]))
     
     obj_r_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_r[tr], w = w[tr])
-    mod_r_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r_tr), en_dnn_ctrl))
+    ctrl_mod_r_tr <- tune_en_dnn_ctrl(obj_r_tr, en_dnn_ctrl, tune, n_tune)
+    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_r_tr, k, "stage2_revised")
+    mod_r_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r_tr), ctrl_mod_r_tr))
     pred_r[te] <- as.numeric(deepTL::predict(mod_r_tr, X[te, , drop = FALSE]))
   }
   
@@ -169,6 +188,7 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL) {
   
   list(
     unrevised = list(obs_mse = obs_mse_u, p_value = p_val_u),
-    revised = list(obs_mse = obs_mse_r, p_value = p_val_r)
+    revised = list(obs_mse = obs_mse_r, p_value = p_val_r),
+    tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL
   )
 }

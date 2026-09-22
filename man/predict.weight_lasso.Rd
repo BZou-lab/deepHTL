@@ -4,7 +4,12 @@
 \alias{predict.weight_lasso}
 \title{Predictions for weight_lasso objects}
 \usage{
-\method{predict}{weight_lasso}(object, newx, which = c("both", "unrevised", "revised"), ...)
+predict.weight_lasso(
+  object,
+  newx,
+  which = c("both", "unrevised", "revised"),
+  ...
+)
 }
 \arguments{
 \item{object}{A fitted weight_lasso object.}

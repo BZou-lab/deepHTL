@@ -42,3 +42,7 @@ output file already exists. `SMOKE=1` shrinks every script to a minutes-long
 test run.
 
 Dependencies: deepTL, MASS, glmnet, CompQuadForm, grf, ranger, dbarts, xgboost.
+
+`settings_runs/` holds the additional type I error runs of the global tests
+under alternative bagged-DNN settings (L1 penalty, mini-batch size, epochs) and
+the diagnostics behind them, with a per-entry provenance file for Table 3.

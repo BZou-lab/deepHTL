@@ -37,6 +37,12 @@ tt <- -1 + xt[,1] * xt[,2] + cos(xt[, 3])^2 + pmax(xt[,4] - xt[,5], 0)
 
 ## Hyper-parameters for DNN and ensemble
 
+The control list below gives the architecture and the training defaults. The `tune`
+argument of `weight_dnn()`, `davies_test()`, `cv_perm_test()` and `cv_perm_vsel()`
+selects the L1 penalty and the mini-batch size for every network from `dnn_tune_grid()`
+within each training fold, so `l1.reg` and `n.batch` here only matter when `tune` is
+not used.
+
 ``` r
 en_dnn_ctrl <- list(
     n.ensemble = 30, verbose = FALSE,
@@ -57,29 +63,15 @@ en_dnn_ctrl <- list(
 ## Estimating HTE using deepHTL
 
 ``` r
-set.seed(4231)
-nuis <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl)$nuisance   # cross-fitted e_hat and mu_hat
-K <- 3
-folds <- sample(rep(seq_len(K), length.out = n))
-cv_rloss_dnn <- function(l1) {
-  ctrl <- en_dnn_ctrl
-  ctrl$esCtrl$l1.reg <- l1
-  loss <- 0
-  for (k in seq_len(K)) {
-    tr <- folds != k
-    te <- folds == k
-    fit <- weight_dnn(importTrt(x[tr, ], y[tr], z[tr]), en_dnn_ctrl = ctrl)
-    tau_te <- predict(fit, x[te, ], which = "revised")
-    loss <- loss + sum((y[te] - nuis$mu_hat[te] - tau_te * (z[te] - nuis$e_hat[te]))^2)
-  }
-  loss / n
-}
-l1_grid <- c(1e-5, 1e-4, 1e-3)
-cv_l1 <- sapply(l1_grid, cv_rloss_dnn)
-en_dnn_ctrl$esCtrl$l1.reg <- l1_grid[which.min(cv_l1)]
+# Network settings are selected inside the cross-fitting folds (argument `tune`):
+# the propensity and outcome networks by out-of-bag log-loss / squared error, the
+# second-stage network by out-of-bag weighted squared error (the R-loss on held-out
+# data). Epochs are not tuned because every network keeps its best validation epoch.
+grid <- dnn_tune_grid()                                          # l1 in {1e-7, 1e-5, 1e-3} x batch in {64, 128, 256}
 
 set.seed(4231)
-fit_deepHTL <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl)
+fit_deepHTL <- weight_dnn(obj_tr, en_dnn_ctrl = en_dnn_ctrl, tune = grid)
+fit_deepHTL$tuning                                               # settings chosen per fold and network
 tau_deepHTL <- predict(fit_deepHTL, xt, which = "both")
 
 set.seed(4231)
@@ -123,9 +115,9 @@ eps <- rnorm(n, 0, sigma)
 Y <- f + Z  * 3 + eps ## Assumae tau = 3
 object <- importTrt(X, Y, Z)
 
-fit <- davies_test(object)
-fit2 <- cv_perm_test(object)
-print(fit)
+fit <- davies_test(object, tune = TRUE)      # kernel score test, Davies reference
+fit2 <- cv_perm_test(object, tune = TRUE)     # cross-fitted permutation test
+print(fit); print(fit2)
 ```
 
 ## Screening for effect modifiers

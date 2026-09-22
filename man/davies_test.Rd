@@ -4,7 +4,7 @@
 \alias{davies_test}
 \title{Davies Test for Heterogeneous Treatment Effects}
 \usage{
-davies_test(object, ctrl = NULL, k_folds = 5)
+davies_test(object, ctrl = NULL, k_folds = 5, tune = NULL, n_tune = 5)
 }
 \arguments{
 \item{object}{An object containing the data (usually class \code{Trt}).
@@ -14,12 +14,22 @@ Must contain slots \code{@x}, \code{@y}, and \code{@z}.}
 If NULL, defaults are used.}
 
 \item{k_folds}{Integer. Number of folds for cross-fitting nuisance parameters (default 5).}
+
+\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
+\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
+settings of every network are selected within each training fold by the mean out-of-bag
+loss of a pilot ensemble, log-loss for the propensity network, squared error for the
+outcome networks and weighted squared error (the R-loss on held-out data) for the
+second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+
+\item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 }
 \value{
 A list containing:
 \item{Q}{The observed test statistic.}
 \item{p_davies}{P-value calculated using the Davies method (mixture of chi-squares).}
 \item{tau_hat}{The estimated average treatment effect.}
+\item{tuning}{Settings selected in each fold when \code{tune} is used, otherwise \code{NULL}.}
 }
 \description{
 Performs a hypothesis test for the presence of Heterogeneous Treatment Effects (HTE)

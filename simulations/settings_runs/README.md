@@ -14,6 +14,7 @@ kernel score (Davies) and permutation p-values, unrevised and revised.
 | `cm_test_v6.R` | default settings plus permutation and projection references for the kernel statistic; `submit_v6.sh` runs the original settings (O arm) and mini-batch 64 / 300 epochs / patience 50 (B64 arm) | `submit_v6.sh` |
 | `cm_test_v7.R` | `CM_SCREEN=1`: within-fold lasso pre-screen of the network inputs | `submit_v7pilot.sh` |
 | `cm_test_v8.R` | conditional-randomization reference for the kernel statistic (diagnostic) | `submit_v8crt.sh` |
+| `cm_test_v9.R` | `cm_test_v6.R` plus data-driven selection of the settings for every network fit: L1 x mini-batch x epoch cap chosen per training fold by the mean out-of-bag gain of a five-network pilot ensemble (the `tune` mechanism of the package), selections saved in `sel` next to `res` | `submit_v9.sh` (pilot: four cells near 0.07, tau0, 200 replications) |
 | `cm_aggregate_*.R`, `cm_paired_v2.R` | rejection rates per cell from `out/` | |
 
 `data/all_runs_labelled_20260922.csv` lists every run per cell with its

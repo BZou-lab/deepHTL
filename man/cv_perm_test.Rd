@@ -10,7 +10,11 @@ cv_perm_test(
   B = 1000,
   en_dnn_ctrl = NULL,
   tune = NULL,
-  n_tune = 5
+  n_tune = 5,
+  screen = TRUE,
+  ctrl_mu = NULL,
+  clip = 0.05,
+  min_keep = 5
 )
 }
 \arguments{
@@ -20,7 +24,9 @@ cv_perm_test(
 
 \item{B}{Integer. The number of permutation shuffles to perform. Default is 1000.}
 
-\item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function.}
+\item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function, used
+for the propensity network and the second-stage effect networks (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}).
+\code{NULL} (default) uses \code{dnn_ctrl("propensity", l1 = 1e-5)}.}
 
 \item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
 \code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
@@ -30,15 +36,36 @@ outcome networks and weighted squared error (the R-loss on held-out data) for th
 second-stage networks. \code{NULL} (default) uses the control list as supplied.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
+
+\item{screen}{Logical. Select the nuisance inputs within each training fold by
+\code{\link[=screen_augment]{screen_augment()}}. Default \code{TRUE}.}
+
+\item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
+uses \code{dnn_ctrl("outcome", l1 = 1e-5)} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise
+\code{en_dnn_ctrl}.}
+
+\item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
+
+\item{min_keep}{Integer. Minimum number of covariates kept by the screen. Default 5.}
 }
 \value{
 A list containing two sub-lists (\code{unrevised} and \code{revised}), each providing the
 observed mean squared error (\code{obs_mse}) and the resulting permutation p-value (\code{p_value}),
-and \code{tuning}, the settings selected in each fold when \code{tune} is used (\code{NULL} otherwise).
+\code{tau0} the constant removed by the revised transformation, \code{screen} the per-fold number of
+kept covariates and outcome inputs (\code{NULL} when \code{screen = FALSE}), and \code{tuning}, the
+settings selected in each fold when \code{tune} is used (\code{NULL} otherwise).
 }
 \description{
 Performs a same-fold cross-fitted permutation test to evaluate
 treatment effect heterogeneity. Uses a single set of folds across all stages
 to estimate nuisance parameters, adjust the baseline, and locally permute
 the Stage 2 predictions to preserve weight-variance alignment.
+
+Nuisance estimation follows \code{\link[=davies_test]{davies_test()}}: folds stratified by treatment arm, the
+within-fold screen of \code{\link[=screen_augment]{screen_augment()}} choosing the network inputs (kept covariates for
+the propensity network, kept covariates plus the selected squares and products for the
+outcome networks), propensity estimates clipped to \verb{[clip, 1 - clip]}, and the revised
+constant chosen by the blended estimator. The second-stage effect networks use all p
+covariates. The permutation shuffles the cross-fitted stage-2 predictions within fold and
+treatment arm.
 }

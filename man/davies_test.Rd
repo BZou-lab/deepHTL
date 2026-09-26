@@ -4,34 +4,70 @@
 \alias{davies_test}
 \title{Davies Test for Heterogeneous Treatment Effects}
 \usage{
-davies_test(object, ctrl = NULL, k_folds = 5, tune = NULL, n_tune = 5)
+davies_test(
+  object,
+  ctrl = NULL,
+  k_folds = 5,
+  tune = NULL,
+  n_tune = 5,
+  screen = TRUE,
+  ctrl_mu = NULL,
+  clip = 0.05,
+  min_keep = 5
+)
 }
 \arguments{
 \item{object}{An object containing the data (usually class \code{Trt}).
 Must contain slots \code{@x}, \code{@y}, and \code{@z}.}
 
-\item{ctrl}{Optional list. Control parameters for the deepTL estimation.
-If NULL, defaults are used.}
+\item{ctrl}{Optional list. Control parameters of the propensity network (see
+\code{\link[=dnn_ctrl]{dnn_ctrl()}}). \code{NULL} (default) uses \code{dnn_ctrl("propensity")}.}
 
 \item{k_folds}{Integer. Number of folds for cross-fitting nuisance parameters (default 5).}
 
 \item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
 \code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
 settings of every network are selected within each training fold by the mean out-of-bag
-loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-outcome networks and weighted squared error (the R-loss on held-out data) for the
-second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+loss of a pilot ensemble, log-loss for the propensity network and squared error for the
+outcome networks. \code{NULL} (default) uses the control lists as supplied, which is what the
+paper does.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
+
+\item{screen}{Logical. Select the nuisance inputs within each training fold by
+\code{\link[=screen_augment]{screen_augment()}}. Default \code{TRUE}.}
+
+\item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
+uses \code{dnn_ctrl("outcome")} when \code{ctrl} is also \code{NULL}, otherwise \code{ctrl}.}
+
+\item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
+
+\item{min_keep}{Integer. Minimum number of covariates kept by the screen. Default 5.}
 }
 \value{
 A list containing:
-\item{Q}{The observed test statistic.}
-\item{p_davies}{P-value calculated using the Davies method (mixture of chi-squares).}
-\item{tau_hat}{The estimated average treatment effect.}
+\item{Q}{The revised test statistic.}
+\item{p_davies}{P-value of the revised test (Davies method, mixture of chi-squares).}
+\item{tau_hat}{The estimated constant treatment effect (revised).}
+\item{unrevised, revised}{The \code{\link[=kernel_score_test]{kernel_score_test()}} objects of the two residuals.}
+\item{tau0}{The constant removed by the revised transformation.}
+\item{nuisance}{The cross-fitted \code{e_hat}, \code{mu_hat}, \code{mu_star_hat} and the fold labels.}
+\item{screen}{Per-fold number of kept covariates and outcome inputs, \code{NULL} when \code{screen = FALSE}.}
 \item{tuning}{Settings selected in each fold when \code{tune} is used, otherwise \code{NULL}.}
 }
 \description{
-Performs a hypothesis test for the presence of Heterogeneous Treatment Effects (HTE)
-using the Davies method on standardized residuals from a bias-corrected Deep Neural Network model.
+The analytic global test of deepHTL: cross-fitted bagged-DNN nuisance estimates, the
+revised constant effect, and the product-form kernel score test of \code{\link[=kernel_score_test]{kernel_score_test()}}
+with the Davies reference distribution, reported for the unrevised and the revised
+residual.
+}
+\details{
+Nuisance estimation uses \code{k_folds} folds stratified by treatment arm. Within each
+training fold \code{\link[=screen_augment]{screen_augment()}} selects the network inputs (when \code{screen = TRUE}): the
+propensity network takes the kept covariates, the outcome networks the kept covariates
+plus the selected squares and products. The propensity estimates are clipped to
+\verb{[clip, 1 - clip]}. The constant effect of the revised transformation blends the weighted
+residual estimator with a linear regression coefficient, the blend chosen by a two-fold
+cross-validated variance criterion, and the outcome model of \code{Y - tau0 * Z} is fitted with
+the same folds and inputs. The kernel test uses all p covariates.
 }

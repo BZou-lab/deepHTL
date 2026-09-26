@@ -4,12 +4,7 @@
 \alias{predict.weight_dnn}
 \title{Predictions for weight_dnn objects}
 \usage{
-predict.weight_dnn(
-  object,
-  newx,
-  which = c("both", "unrevised", "revised"),
-  ...
-)
+\method{predict}{weight_dnn}(object, newx, which = c("both", "unrevised", "revised"), ...)
 }
 \arguments{
 \item{object}{A fitted weight_dnn object.}

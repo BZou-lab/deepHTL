@@ -51,9 +51,14 @@ test_that("Davies test returns valid p-values", {
   )
   
   res <- davies_test(obj, ctrl = ctrl)
-  
+
   expect_true(!is.na(res$p_davies) && is.numeric(res$p_davies))
   expect_true(res$p_davies >= 0 && res$p_davies <= 1)
+  expect_s3_class(res$unrevised, "kernel_score_test")
+  expect_s3_class(res$revised, "kernel_score_test")
+  expect_equal(res$revised$form, "product")
+  expect_true(res$unrevised$p_value >= 0 && res$unrevised$p_value <= 1)
+  expect_equal(nrow(res$screen), 5L)
 })
 
 test_that("Cross-fitted permutation test returns valid structure and p-values", {
@@ -77,7 +82,7 @@ test_that("Cross-fitted permutation test returns valid structure and p-values", 
   
   # Check structure
   expect_type(res, "list")
-  expect_named(res, c("unrevised", "revised"))
+  expect_true(all(c("unrevised", "revised", "tau0", "screen") %in% names(res)))
   
   # Check unrevised outputs
   expect_true(is.numeric(res$unrevised$obs_mse))

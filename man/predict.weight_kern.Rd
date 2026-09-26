@@ -4,12 +4,7 @@
 \alias{predict.weight_kern}
 \title{Predictions for weight_kern objects}
 \usage{
-predict.weight_kern(
-  object,
-  newx = NULL,
-  which = c("both", "unrevised", "revised"),
-  ...
-)
+\method{predict}{weight_kern}(object, newx = NULL, which = c("both", "unrevised", "revised"), ...)
 }
 \arguments{
 \item{object}{A fitted weight_kern object.}

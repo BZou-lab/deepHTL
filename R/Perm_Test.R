@@ -5,10 +5,20 @@
 #' to estimate nuisance parameters, adjust the baseline, and locally permute 
 #' the Stage 2 predictions to preserve weight-variance alignment.
 #' 
+#' Nuisance estimation follows [davies_test()]: folds stratified by treatment arm, the
+#' within-fold screen of [screen_augment()] choosing the network inputs (kept covariates for
+#' the propensity network, kept covariates plus the selected squares and products for the
+#' outcome networks), propensity estimates clipped to `[clip, 1 - clip]`, and the revised
+#' constant chosen by the blended estimator. The second-stage effect networks use all p
+#' covariates. The permutation shuffles the cross-fitted stage-2 predictions within fold and
+#' treatment arm.
+#'
 #' @param object An object of class `Trt` containing the covariates, outcome, and treatment assignment.
 #' @param k_folds Integer. The number of folds for cross-fitting. Default is 5.
 #' @param B Integer. The number of permutation shuffles to perform. Default is 1000.
-#' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function.
+#' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function, used
+#'   for the propensity network and the second-stage effect networks (see [dnn_ctrl()]).
+#'   `NULL` (default) uses `dnn_ctrl("propensity", l1 = 1e-5)`.
 #' @param tune Optional grid of candidate network settings: a data.frame whose columns are
 #'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
 #'   settings of every network are selected within each training fold by the mean out-of-bag
@@ -16,62 +26,70 @@
 #'   outcome networks and weighted squared error (the R-loss on held-out data) for the
 #'   second-stage networks. `NULL` (default) uses the control list as supplied.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
-#' 
-#' @return A list containing two sub-lists (`unrevised` and `revised`), each providing the 
+#' @param screen Logical. Select the nuisance inputs within each training fold by
+#'   [screen_augment()]. Default `TRUE`.
+#' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
+#'   uses `dnn_ctrl("outcome", l1 = 1e-5)` when `en_dnn_ctrl` is also `NULL`, otherwise
+#'   `en_dnn_ctrl`.
+#' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
+#' @param min_keep Integer. Minimum number of covariates kept by the screen. Default 5.
+#'
+#' @return A list containing two sub-lists (`unrevised` and `revised`), each providing the
 #' observed mean squared error (`obs_mse`) and the resulting permutation p-value (`p_value`),
-#' and `tuning`, the settings selected in each fold when `tune` is used (`NULL` otherwise).
-#' 
+#' `tau0` the constant removed by the revised transformation, `screen` the per-fold number of
+#' kept covariates and outcome inputs (`NULL` when `screen = FALSE`), and `tuning`, the
+#' settings selected in each fold when `tune` is used (`NULL` otherwise).
+#'
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
 #' @export
-cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5) {
-  z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
-  z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
-  
+cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
+                         screen = TRUE, ctrl_mu = NULL, clip = 0.05, min_keep = 5) {
+  arms <- trt_arms(object@z)
+  z_fac <- arms$z_fac; z_num <- arms$z_num
+
   X <- object@x
   y <- object@y
   n <- nrow(X)
-  
+
   if (is.null(en_dnn_ctrl)) {
-    en_dnn_ctrl <- list(
-      n.ensemble = 30, verbose = FALSE,
-      esCtrl = list(
-        n.hidden = c(128, 64, 32),
-        n.batch = 256,
-        n.epoch = 120,
-        norm.x = TRUE, norm.y = TRUE,
-        activate = "relu", accel = "rcpp",
-        l1.reg = 1e-5,
-        plot = FALSE,
-        learning.rate.adaptive = "adam",
-        early.stop.det = 20
-      )
-    )
+    en_dnn_ctrl <- dnn_ctrl("propensity", l1 = 1e-5)
+    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome", l1 = 1e-5)
   }
-  
-  folds <- sample(rep(1:k_folds, length.out = n))
+  if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
+
+  folds <- stratified_folds(z_fac, k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
-  
+  sels <- vector("list", k_folds)
+
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
-    
-    z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
+
+    if (screen) {
+      sels[[k]] <- screen_augment(X[tr, , drop = FALSE], y[tr], z_num[tr], min_keep = min_keep)
+      Xe <- nuisance_input(sels[[k]], X, augmented = FALSE)
+      Xmu <- nuisance_input(sels[[k]], X, augmented = TRUE)
+    } else {
+      Xe <- Xmu <- X
+    }
+
+    z_obj <- deepTL::importDnnet(x = Xe[tr, , drop = FALSE], y = z_fac[tr])
     ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
-    pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
+    pk <- deepTL::predict(z_mod, Xe[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
-    
-    y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+
+    y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
-    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
+    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, Xmu[te, , drop = FALSE]))
   }
-  
-  e_hat <- pmin(pmax(e_hat, 5e-2), 1 - 5e-2)
+
+  e_hat <- pmin(pmax(e_hat, clip), 1 - clip)
   w <- (z_num - e_hat)^2
   
   tau0 <- sum((y - mu_hat) * (z_num - e_hat)) / sum(w)
@@ -118,11 +136,12 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     tr <- folds != k
     te <- folds == k
     
-    ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
-    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, en_dnn_ctrl, tune, n_tune)
+    Xmu <- if (screen) nuisance_input(sels[[k]], X, augmented = TRUE) else X
+    ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
+    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
-    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
+    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, Xmu[te, , drop = FALSE]))
   }
 
   Ytilde_u <- (y - mu_hat) / (z_num - e_hat)
@@ -186,9 +205,17 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   p_val_u <- (sum(perm_mse_u <= obs_mse_u) + 1) / (B + 1)
   p_val_r <- (sum(perm_mse_r <= obs_mse_r) + 1) / (B + 1)
   
+  screen_tab <- if (screen) {
+    data.frame(fold = seq_len(k_folds),
+               n_vars = vapply(sels, function(s) length(s$vars), integer(1)),
+               n_inputs = vapply(sels, function(s) length(s$vars) + sum(s$feats > s$p), integer(1)))
+  } else NULL
+
   list(
     unrevised = list(obs_mse = obs_mse_u, p_value = p_val_u),
     revised = list(obs_mse = obs_mse_r, p_value = p_val_r),
+    tau0 = unname(tau0_opt),
+    screen = screen_tab,
     tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL
   )
 }

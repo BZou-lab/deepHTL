@@ -4,12 +4,7 @@
 \alias{predict.weight_xgboost}
 \title{Predictions for weight_xgboost objects}
 \usage{
-predict.weight_xgboost(
-  object,
-  newx,
-  which = c("both", "unrevised", "revised"),
-  ...
-)
+\method{predict}{weight_xgboost}(object, newx, which = c("both", "unrevised", "revised"), ...)
 }
 \arguments{
 \item{object}{A fitted weight_xgboost object.}

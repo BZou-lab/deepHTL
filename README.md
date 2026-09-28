@@ -170,5 +170,5 @@ Berrett, T. B., Wang, Y., Barber, R. F. and Samworth, R. J. (2020). The conditio
 
 ## Simulation code
 
-The scripts that reproduce the simulation studies of the paper are in
-[`simulations/`](simulations/), with their own README.
+[`simulations/dgp.R`](simulations/dgp.R) generates data from the registry design of the
+paper and runs the tests, the screen and the estimator once.

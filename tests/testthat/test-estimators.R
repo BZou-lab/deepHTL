@@ -61,7 +61,7 @@ test_that("Davies test returns valid p-values", {
   expect_equal(nrow(res$screen), 5L)
 })
 
-test_that("Cross-fitted permutation test returns valid structure and p-values", {
+test_that("Sample-split permutation test returns valid structure and p-values", {
   skip_on_cran() 
   
   set.seed(123)

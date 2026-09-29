@@ -110,16 +110,17 @@ X_mu <- nuisance_input(sel, X)                    # outcome networks: kept covar
 X_e  <- nuisance_input(sel, X, augmented = FALSE) # propensity network: kept covariates
 
 fit <- davies_test(object)      # kernel score test (Davies p-value)
-fit2 <- cv_perm_test(object)    # cross-fitted permutation test
+fit2 <- cv_perm_test(object)    # sample-split permutation test
 c(fit$p_davies, fit2$revised$p_value)
 ```
 
 ## Screening for effect modifiers
 
 Once the global test rejects, `cv_perm_vsel()` asks *which* covariates the
-heterogeneity runs along. For each covariate it permutes that column of the
-held-out design and re-evaluates the cross-fitted stage-2 model, reusing the
-fits rather than refitting anything. Two p-values are reported per covariate:
+heterogeneity runs along. For each covariate it permutes that column in the
+held-out half of the sample and re-evaluates the stage-2 model fitted on the
+other half, reusing the fit rather than refitting anything. Two p-values are
+reported per covariate:
 
 - `p_marg` permutes the covariate marginally. Under correlated covariates this
   scheme over-rejects nulls that are merely correlated with true modifiers,

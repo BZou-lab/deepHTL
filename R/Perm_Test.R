@@ -1,20 +1,19 @@
-#' @title Cross-Fitted Permutation Test for Treatment Heterogeneity (Same-Fold)
+#' @title Sample-Split Permutation Test for Treatment Heterogeneity
 #' 
-#' @description Performs a same-fold cross-fitted permutation test to evaluate 
-#' treatment effect heterogeneity. Uses a single set of folds across all stages 
-#' to estimate nuisance parameters, adjust the baseline, and locally permute 
-#' the Stage 2 predictions to preserve weight-variance alignment.
+#' @description Performs a sample-split permutation test of treatment effect heterogeneity.
+#' The nuisance models are cross-fitted on the full sample, the second-stage effect networks
+#' are fitted on one half of the sample (S1), and the observed loss on the other half (S2) is
+#' compared with the losses after shuffling the S2 predictions within treatment arm.
 #' 
 #' Nuisance estimation follows [davies_test()]: folds stratified by treatment arm, the
 #' within-fold screen of [screen_augment()] choosing the network inputs (kept covariates for
 #' the propensity network, kept covariates plus the selected squares and products for the
 #' outcome networks), propensity estimates clipped to `[clip, 1 - clip]`, and the revised
-#' constant chosen by the blended estimator. The second-stage effect networks use all p
-#' covariates. The permutation shuffles the cross-fitted stage-2 predictions within fold and
-#' treatment arm.
+#' constant chosen by the blended estimator. The halves are drawn within treatment arm and the
+#' second-stage effect networks use all p covariates.
 #'
 #' @param object An object of class `Trt` containing the covariates, outcome, and treatment assignment.
-#' @param k_folds Integer. The number of folds for cross-fitting. Default is 5.
+#' @param k_folds Integer. The number of folds for cross-fitting the nuisance models. Default is 5.
 #' @param B Integer. The number of permutation shuffles to perform. Default is 1000.
 #' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function, used
 #'   for the propensity network and the second-stage effect networks (see [dnn_ctrl()]).
@@ -33,24 +32,32 @@
 #'   `en_dnn_ctrl`.
 #' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
 #' @param min_keep Integer. Minimum number of covariates kept by the screen. Default 5.
+#' @param split_frac Numeric. Share of each treatment arm assigned to the training half S1.
+#'   Default 0.5.
+#' @param groups Optional vector of group labels (e.g. donor id), one per subject. Members of a
+#'   group are kept in the same half and in the same cross-fitting fold. `NULL` (default)
+#'   treats every subject as its own group.
 #'
 #' @return A list containing two sub-lists (`unrevised` and `revised`), each providing the
-#' observed mean squared error (`obs_mse`) and the resulting permutation p-value (`p_value`),
-#' `tau0` the constant removed by the revised transformation, `screen` the per-fold number of
-#' kept covariates and outcome inputs (`NULL` when `screen = FALSE`), and `tuning`, the
-#' settings selected in each fold when `tune` is used (`NULL` otherwise).
+#' observed weighted mean squared error on S2 (`obs_mse`) and the resulting permutation p-value
+#' (`p_value`), `tau0` the constant removed by the revised transformation, `n_train` and
+#' `n_test` the sizes of S1 and S2, `screen` the per-fold number of kept covariates and outcome
+#' inputs (`NULL` when `screen = FALSE`), and `tuning`, the settings selected in each fold
+#' (fold `NA` for the stage-2 fits on S1) when `tune` is used (`NULL` otherwise).
 #'
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
 #' @export
 cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
-                         screen = TRUE, ctrl_mu = NULL, clip = 0.05, min_keep = 5) {
+                         screen = TRUE, ctrl_mu = NULL, clip = 0.05, min_keep = 5,
+                         split_frac = 0.5, groups = NULL) {
   arms <- trt_arms(object@z)
   z_fac <- arms$z_fac; z_num <- arms$z_num
 
   X <- object@x
   y <- object@y
   n <- nrow(X)
+  check_split_args(n, split_frac, groups)
 
   if (is.null(en_dnn_ctrl)) {
     en_dnn_ctrl <- dnn_ctrl("propensity", l1 = 1e-5)
@@ -58,7 +65,8 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   }
   if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
 
-  folds <- stratified_folds(z_fac, k_folds)
+  folds <- if (is.null(groups)) stratified_folds(z_fac, k_folds) else
+    group_parts(z_num, groups, seq_len(k_folds - 1) / k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
   sels <- vector("list", k_folds)
@@ -147,59 +155,49 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   Ytilde_u <- (y - mu_hat) / (z_num - e_hat)
   Ytilde_r <- (y - tau0_opt * z_num - ys0_hat) / (z_num - e_hat)
   
-  pred_u <- numeric(n)
-  pred_r <- numeric(n)
-  
-  for (k in 1:k_folds) {
-    tr <- folds != k
-    te <- folds == k
-    
-    obj_u_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_u[tr], w = w[tr])
-    ctrl_mod_u_tr <- tune_en_dnn_ctrl(obj_u_tr, en_dnn_ctrl, tune, n_tune)
-    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_u_tr, k, "stage2_unrevised")
-    mod_u_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u_tr), ctrl_mod_u_tr))
-    pred_u[te] <- as.numeric(deepTL::predict(mod_u_tr, X[te, , drop = FALSE]))
-    
-    obj_r_tr <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ytilde_r[tr], w = w[tr])
-    ctrl_mod_r_tr <- tune_en_dnn_ctrl(obj_r_tr, en_dnn_ctrl, tune, n_tune)
-    tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_r_tr, k, "stage2_revised")
-    mod_r_tr <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r_tr), ctrl_mod_r_tr))
-    pred_r[te] <- as.numeric(deepTL::predict(mod_r_tr, X[te, , drop = FALSE]))
-  }
-  
-  obs_mse_u <- sum(w * (Ytilde_u - pred_u)^2) / n
-  obs_mse_r <- sum(w * (Ytilde_r - pred_r)^2) / n
+  ## sample split within arm: stage-2 networks fitted on S1, loss and permutations on S2
+  S1 <- group_parts(z_num, groups, split_frac) == 1L
+  S2 <- !S1
+  n1 <- sum(S1)
+  n2 <- sum(S2)
+  if (n1 == 0 || n2 == 0) stop("both halves of the sample split must be non-empty")
+
+  obj_u <- deepTL::importDnnet(x = X[S1, , drop = FALSE], y = Ytilde_u[S1], w = w[S1])
+  ctrl_mod_u <- tune_en_dnn_ctrl(obj_u, en_dnn_ctrl, tune, n_tune)
+  tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_u, NA_integer_, "stage2_unrevised")
+  mod_u <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u), ctrl_mod_u))
+  pred_u <- as.numeric(deepTL::predict(mod_u, X[S2, , drop = FALSE]))
+
+  obj_r <- deepTL::importDnnet(x = X[S1, , drop = FALSE], y = Ytilde_r[S1], w = w[S1])
+  ctrl_mod_r <- tune_en_dnn_ctrl(obj_r, en_dnn_ctrl, tune, n_tune)
+  tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_r, NA_integer_, "stage2_revised")
+  mod_r <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r), ctrl_mod_r))
+  pred_r <- as.numeric(deepTL::predict(mod_r, X[S2, , drop = FALSE]))
+
+  yu <- Ytilde_u[S2]
+  yr <- Ytilde_r[S2]
+  w2 <- w[S2]
+  obs_mse_u <- sum(w2 * (yu - pred_u)^2) / n2
+  obs_mse_r <- sum(w2 * (yr - pred_r)^2) / n2
   
   perm_mse_u <- numeric(B)
   perm_mse_r <- numeric(B)
   
-  idx_1 <- which(z_num == 1)
-  idx_0 <- which(z_num == 0)
+  arm_idx <- list(which(z_num[S2] == 0), which(z_num[S2] == 1))
   
   for (b in 1:B) {
-    pred_u_perm <- numeric(n)
-    pred_r_perm <- numeric(n)
+    pred_u_perm <- pred_u
+    pred_r_perm <- pred_r
     
-    for (k in 1:k_folds) {
-      te <- which(folds == k)
-      
-      idx_1_te <- intersect(idx_1, te)
-      idx_0_te <- intersect(idx_0, te)
-      
-      if(length(idx_1_te) > 0) {
-        shuf_1 <- sample(idx_1_te)
-        pred_u_perm[idx_1_te] <- pred_u[shuf_1]
-        pred_r_perm[idx_1_te] <- pred_r[shuf_1]
-      }
-      if(length(idx_0_te) > 0) {
-        shuf_0 <- sample(idx_0_te)
-        pred_u_perm[idx_0_te] <- pred_u[shuf_0]
-        pred_r_perm[idx_0_te] <- pred_r[shuf_0]
-      }
+    # one within-arm shuffle shared by both models
+    for (ix in arm_idx) {
+      shuf <- ix[sample.int(length(ix))]
+      pred_u_perm[ix] <- pred_u[shuf]
+      pred_r_perm[ix] <- pred_r[shuf]
     }
     
-    perm_mse_u[b] <- sum(w * (Ytilde_u - pred_u_perm)^2) / n
-    perm_mse_r[b] <- sum(w * (Ytilde_r - pred_r_perm)^2) / n
+    perm_mse_u[b] <- sum(w2 * (yu - pred_u_perm)^2) / n2
+    perm_mse_r[b] <- sum(w2 * (yr - pred_r_perm)^2) / n2
   }
   
   p_val_u <- (sum(perm_mse_u <= obs_mse_u) + 1) / (B + 1)
@@ -215,7 +213,34 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     unrevised = list(obs_mse = obs_mse_u, p_value = p_val_u),
     revised = list(obs_mse = obs_mse_r, p_value = p_val_r),
     tau0 = unname(tau0_opt),
+    n_train = n1,
+    n_test = n2,
     screen = screen_tab,
     tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL
   )
+}
+
+# Part labels 1, 2, ... that keep every group whole and are stratified by treatment arm: within
+# each arm the groups (single subjects when `groups` is NULL) are taken in random order and cut
+# where the cumulative share of the arm's subjects passes `cuts`. A group with members in both
+# arms goes with the arm of most of its members. `cuts = split_frac` gives the halves S1 (1) and
+# S2 (2), `cuts = (1:(K - 1)) / K` gives K cross-fitting folds.
+group_parts <- function(z_num, groups, cuts) {
+  g <- if (is.null(groups)) seq_along(z_num) else match(groups, unique(groups))
+  size <- tabulate(g)
+  arm <- as.numeric(tapply(z_num, g, mean) > 0.5)
+  part <- integer(length(size))
+  for (a in c(0, 1)) {
+    ga <- which(arm == a)
+    ga <- ga[sample.int(length(ga))]
+    part[ga] <- 1L + findInterval(cumsum(size[ga]) / sum(size[ga]), cuts, left.open = TRUE)
+  }
+  part[g]
+}
+
+check_split_args <- function(n, split_frac, groups) {
+  if (!is.numeric(split_frac) || length(split_frac) != 1 || !(split_frac > 0 && split_frac < 1))
+    stop("split_frac must be a number in (0, 1)")
+  if (!is.null(groups) && (length(groups) != n || anyNA(groups)))
+    stop("groups must have one non-missing label per subject")
 }

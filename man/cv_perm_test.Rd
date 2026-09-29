@@ -2,7 +2,7 @@
 % Please edit documentation in R/Perm_Test.R
 \name{cv_perm_test}
 \alias{cv_perm_test}
-\title{Cross-Fitted Permutation Test for Treatment Heterogeneity (Same-Fold)}
+\title{Sample-Split Permutation Test for Treatment Heterogeneity}
 \usage{
 cv_perm_test(
   object,
@@ -14,13 +14,15 @@ cv_perm_test(
   screen = TRUE,
   ctrl_mu = NULL,
   clip = 0.05,
-  min_keep = 5
+  min_keep = 5,
+  split_frac = 0.5,
+  groups = NULL
 )
 }
 \arguments{
 \item{object}{An object of class \code{Trt} containing the covariates, outcome, and treatment assignment.}
 
-\item{k_folds}{Integer. The number of folds for cross-fitting. Default is 5.}
+\item{k_folds}{Integer. The number of folds for cross-fitting the nuisance models. Default is 5.}
 
 \item{B}{Integer. The number of permutation shuffles to perform. Default is 1000.}
 
@@ -47,25 +49,32 @@ uses \code{dnn_ctrl("outcome", l1 = 1e-5)} when \code{en_dnn_ctrl} is also \code
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
 
 \item{min_keep}{Integer. Minimum number of covariates kept by the screen. Default 5.}
+
+\item{split_frac}{Numeric. Share of each treatment arm assigned to the training half S1.
+Default 0.5.}
+
+\item{groups}{Optional vector of group labels (e.g. donor id), one per subject. Members of a
+group are kept in the same half and in the same cross-fitting fold. \code{NULL} (default)
+treats every subject as its own group.}
 }
 \value{
 A list containing two sub-lists (\code{unrevised} and \code{revised}), each providing the
-observed mean squared error (\code{obs_mse}) and the resulting permutation p-value (\code{p_value}),
-\code{tau0} the constant removed by the revised transformation, \code{screen} the per-fold number of
-kept covariates and outcome inputs (\code{NULL} when \code{screen = FALSE}), and \code{tuning}, the
-settings selected in each fold when \code{tune} is used (\code{NULL} otherwise).
+observed weighted mean squared error on S2 (\code{obs_mse}) and the resulting permutation p-value
+(\code{p_value}), \code{tau0} the constant removed by the revised transformation, \code{n_train} and
+\code{n_test} the sizes of S1 and S2, \code{screen} the per-fold number of kept covariates and outcome
+inputs (\code{NULL} when \code{screen = FALSE}), and \code{tuning}, the settings selected in each fold
+(fold \code{NA} for the stage-2 fits on S1) when \code{tune} is used (\code{NULL} otherwise).
 }
 \description{
-Performs a same-fold cross-fitted permutation test to evaluate
-treatment effect heterogeneity. Uses a single set of folds across all stages
-to estimate nuisance parameters, adjust the baseline, and locally permute
-the Stage 2 predictions to preserve weight-variance alignment.
+Performs a sample-split permutation test of treatment effect heterogeneity.
+The nuisance models are cross-fitted on the full sample, the second-stage effect networks
+are fitted on one half of the sample (S1), and the observed loss on the other half (S2) is
+compared with the losses after shuffling the S2 predictions within treatment arm.
 
 Nuisance estimation follows \code{\link[=davies_test]{davies_test()}}: folds stratified by treatment arm, the
 within-fold screen of \code{\link[=screen_augment]{screen_augment()}} choosing the network inputs (kept covariates for
 the propensity network, kept covariates plus the selected squares and products for the
 outcome networks), propensity estimates clipped to \verb{[clip, 1 - clip]}, and the revised
-constant chosen by the blended estimator. The second-stage effect networks use all p
-covariates. The permutation shuffles the cross-fitted stage-2 predictions within fold and
-treatment arm.
+constant chosen by the blended estimator. The halves are drawn within treatment arm and the
+second-stage effect networks use all p covariates.
 }

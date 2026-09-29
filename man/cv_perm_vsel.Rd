@@ -14,13 +14,16 @@ cv_perm_vsel(
   n_cores = 1,
   en_dnn_ctrl = NULL,
   tune = NULL,
-  n_tune = 5
+  n_tune = 5,
+  split_frac = 0.5,
+  groups = NULL,
+  var_groups = NULL
 )
 }
 \arguments{
 \item{object}{An object of class \code{Trt} containing the covariates, outcome, and treatment assignment.}
 
-\item{k_folds}{Integer. The number of folds for cross-fitting. Default is 5.}
+\item{k_folds}{Integer. The number of folds for cross-fitting the nuisance models. Default is 5.}
 
 \item{B}{Integer. The number of permutations per covariate and scheme. Default is 500.}
 
@@ -48,17 +51,31 @@ outcome network and weighted squared error (the R-loss on held-out data) for the
 second-stage networks. \code{NULL} (default) uses the control list as supplied.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
+
+\item{split_frac}{Numeric. Share of each treatment arm assigned to the training half S1.
+Default 0.5.}
+
+\item{groups}{Optional vector of group labels (e.g. donor id), one per subject. Members of a
+group are kept in the same half and in the same cross-fitting fold. \code{NULL} (default)
+treats every subject as its own group.}
+
+\item{var_groups}{Optional named list of column sets (names or indices of columns of X)
+that are permuted jointly as whole rows, e.g. the indicator columns of one categorical
+covariate. Columns in no set are screened one at a time. For a set, the conditional
+scheme stratifies on its first principal component. Default \code{NULL}.}
 }
 \value{
-A list with two elements. \code{screen} is a data.frame with one
-row per covariate: \code{variable}, \code{n_cond} (size of the
+A list. \code{screen} is a data.frame with one row per screened
+covariate or column set: \code{variable}, \code{columns} (the permuted
+columns), \code{n_cond} (size of the
 conditioning set \code{S_j}), the permutation p-values \code{p_marg} and
 \code{p_cond}, the inflation ratios \code{infl_marg} and \code{infl_cond}
 (mean permuted loss over observed loss), and the within-sample importance
 ranks \code{rank_marg} and \code{rank_cond} (1 = most important; ties in p
-broken by inflation). \code{obs_loss} is the observed weighted loss of the
-cross-fitted stage-2 model. \code{tuning} lists the settings selected in each
-fold when \code{tune} is used, otherwise it is \code{NULL}. Covariates whose conditional distribution given
+broken by inflation). \code{obs_loss} is the observed weighted loss on S2 of
+the stage-2 model fitted on S1, \code{n_train} and \code{n_test} are the sizes
+of S1 and S2. \code{tuning} lists the settings selected in each
+fold (fold \code{NA} for the stage-2 fit) when \code{tune} is used, otherwise it is \code{NULL}. Covariates whose conditional distribution given
 the others is degenerate (e.g. deterministic functions of other columns)
 should be removed before screening.
 }
@@ -67,14 +84,14 @@ Localizes treatment effect heterogeneity to individual
 covariates. After the global tests establish that \code{tau(X)} varies,
 this screen asks along which covariates it varies: for each covariate
 \code{X_j} it tests \code{H_0j}: \code{tau(x)} does not depend on
-\code{x_j}, by permuting the j-th column of the held-out design and
-re-evaluating the cross-fitted stage-2 model, so no additional model
-fitting is required beyond the fits already used for estimation.
+\code{x_j}. The stage-2 model is fitted once on one half of the sample
+(S1, drawn within treatment arm), and \code{X_j} is permuted within the
+other half (S2), where the permuted loss is compared with the observed one.
 
-Two permutation schemes are computed from the same fits, so their
+Two permutation schemes are computed from the same fit, so their
 comparison is controlled:
 \itemize{
-\item \code{p_marg}: \code{X_j} is shuffled across all subjects. This
+\item \code{p_marg}: \code{X_j} is shuffled across all subjects of S2. This
 breaks its association with the outcome, as intended, but also with
 the remaining covariates, so under dependence the model is evaluated
 off the support of \code{X} and null covariates correlated with true
@@ -83,7 +100,7 @@ al. 2021).
 \item \code{p_cond}: conditional scheme. Let
 \code{S_j = \{k : |cor(X_j, X_k)| > cor_threshold\}}. A random forest
 of \code{X_j} on \code{X_{S_j}} is fitted, its out-of-bag fitted
-values are cut into \code{n_strata} quantile strata, and \code{X_j}
+values on S2 are cut into \code{n_strata} quantile strata, and \code{X_j}
 is permuted only within strata, so a subject exchanges its value only
 with others whose covariate profile predicts a similar \code{X_j}.
 This approximates sampling from \code{P(X_j | X_-j)} (Berrett et al.
@@ -91,7 +108,7 @@ This approximates sampling from \code{P(X_j | X_-j)} (Berrett et al.
 marginal one.
 }
 
-Permutations are batched: \code{chunk} permuted copies of a fold are
+Permutations are batched: \code{chunk} permuted copies of S2 are
 stacked into a single \code{predict()} call, which is what makes B in the
 hundreds affordable with an ensemble DNN.
 }

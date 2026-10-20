@@ -10,10 +10,8 @@ davies_test(
   k_folds = 5,
   tune = NULL,
   n_tune = 5,
-  screen = TRUE,
   ctrl_mu = NULL,
-  clip = 0.05,
-  min_keep = 5
+  clip = 0.05
 )
 }
 \arguments{
@@ -34,15 +32,10 @@ paper does.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 
-\item{screen}{Logical. Select the nuisance inputs within each training fold by
-\code{\link[=screen_augment]{screen_augment()}}. Default \code{TRUE}.}
-
 \item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
 uses \code{dnn_ctrl("outcome")} when \code{ctrl} is also \code{NULL}, otherwise \code{ctrl}.}
 
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
-
-\item{min_keep}{Integer. Minimum number of covariates kept by the screen. Default 5.}
 }
 \value{
 A list containing:
@@ -52,7 +45,6 @@ A list containing:
 \item{unrevised, revised}{The \code{\link[=kernel_score_test]{kernel_score_test()}} objects of the two residuals.}
 \item{tau0}{The constant removed by the revised transformation.}
 \item{nuisance}{The cross-fitted \code{e_hat}, \code{mu_hat}, \code{mu_star_hat} and the fold labels.}
-\item{screen}{Per-fold number of kept covariates and outcome inputs, \code{NULL} when \code{screen = FALSE}.}
 \item{tuning}{Settings selected in each fold when \code{tune} is used, otherwise \code{NULL}.}
 }
 \description{
@@ -62,12 +54,10 @@ with the Davies reference distribution, reported for the unrevised and the revis
 residual.
 }
 \details{
-Nuisance estimation uses \code{k_folds} folds stratified by treatment arm. Within each
-training fold \code{\link[=screen_augment]{screen_augment()}} selects the network inputs (when \code{screen = TRUE}): the
-propensity network takes the kept covariates, the outcome networks the kept covariates
-plus the selected squares and products. The propensity estimates are clipped to
-\verb{[clip, 1 - clip]}. The constant effect of the revised transformation blends the weighted
-residual estimator with a linear regression coefficient, the blend chosen by a two-fold
-cross-validated variance criterion, and the outcome model of \code{Y - tau0 * Z} is fitted with
-the same folds and inputs. The kernel test uses all p covariates.
+Nuisance estimation uses \code{k_folds} folds stratified by treatment arm. The propensity
+estimates are clipped to \verb{[clip, 1 - clip]}. The constant effect of the revised
+transformation blends the weighted residual estimator with a linear regression
+coefficient, the blend chosen by a two-fold cross-validated variance criterion, and the
+outcome model of \code{Y - tau0 * Z} is fitted with the same folds and inputs. The kernel test
+uses all p covariates.
 }

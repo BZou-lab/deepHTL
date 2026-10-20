@@ -58,7 +58,6 @@ test_that("Davies test returns valid p-values", {
   expect_s3_class(res$revised, "kernel_score_test")
   expect_equal(res$revised$form, "product")
   expect_true(res$unrevised$p_value >= 0 && res$unrevised$p_value <= 1)
-  expect_equal(nrow(res$screen), 5L)
 })
 
 test_that("Sample-split permutation test returns valid structure and p-values", {
@@ -82,7 +81,7 @@ test_that("Sample-split permutation test returns valid structure and p-values", 
   
   # Check structure
   expect_type(res, "list")
-  expect_true(all(c("unrevised", "revised", "tau0", "screen") %in% names(res)))
+  expect_true(all(c("unrevised", "revised", "tau0") %in% names(res)))
   
   # Check unrevised outputs
   expect_true(is.numeric(res$unrevised$obs_mse))

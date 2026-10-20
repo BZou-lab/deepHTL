@@ -102,13 +102,6 @@ eps <- rnorm(n, 0, sigma)
 Y <- f + Z  * 3 + eps ## Assume tau = 3
 object <- importTrt(X, Y, Z)
 
-## Lasso screen of the nuisance inputs: lasso for Y and for Z on [X, X^2, X_i X_j],
-## penalty by 10-fold CV. davies_test() and cv_perm_test() run it inside each
-## cross-fitting fold (screen = TRUE), shown here on the full sample.
-sel  <- screen_augment(X, Y, Z)
-X_mu <- nuisance_input(sel, X)                    # outcome networks: kept covariates + selected squares and products
-X_e  <- nuisance_input(sel, X, augmented = FALSE) # propensity network: kept covariates
-
 fit <- davies_test(object)      # kernel score test (Davies p-value)
 fit2 <- cv_perm_test(object)    # sample-split permutation test
 c(fit$p_davies, fit2$revised$p_value)

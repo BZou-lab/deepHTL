@@ -33,27 +33,6 @@ test_that("kernel_score_test follows the product-form algebra and returns a vali
   expect_true(sg$p_value >= 0 && sg$p_value <= 1)
 })
 
-test_that("screen_augment keeps at least min_keep covariates and builds the inputs", {
-  set.seed(5)
-  n <- 200; p <- 6
-  X <- matrix(rnorm(n * p), n, p)
-  Z <- rbinom(n, 1, plogis(0.6 * X[, 3] * X[, 4]))
-  Y <- X[, 1] - X[, 2]^2 + Z + rnorm(n)
-  sel <- screen_augment(X, Y, Z, min_keep = 5)
-  expect_s3_class(sel, "screen_augment")
-  expect_true(length(sel$vars) >= 5)
-  expect_true(all(sel$vars %in% seq_len(p)))
-
-  Xmu <- nuisance_input(sel, X)
-  Xe <- nuisance_input(sel, X, augmented = FALSE)
-  expect_equal(nrow(Xmu), n); expect_equal(nrow(Xe), n)
-  expect_equal(ncol(Xe), length(sel$vars))
-  expect_equal(ncol(Xmu), length(sel$vars) + sum(sel$feats > p))
-  expect_equal(unname(Xe), unname(X[, sel$vars, drop = FALSE]))
-  # single new row
-  expect_equal(dim(nuisance_input(sel, X[1, , drop = FALSE])), c(1L, ncol(Xmu)))
-})
-
 test_that("dnn_ctrl returns the two training budgets", {
   o <- dnn_ctrl("outcome"); e <- dnn_ctrl("propensity", l1 = 1e-5)
   expect_equal(unlist(o$esCtrl[c("n.batch", "n.epoch", "early.stop.det")]), c(n.batch = 128, n.epoch = 500, early.stop.det = 50))

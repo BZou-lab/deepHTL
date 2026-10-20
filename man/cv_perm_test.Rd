@@ -11,10 +11,8 @@ cv_perm_test(
   en_dnn_ctrl = NULL,
   tune = NULL,
   n_tune = 5,
-  screen = TRUE,
   ctrl_mu = NULL,
   clip = 0.05,
-  min_keep = 5,
   split_frac = 0.5,
   groups = NULL
 )
@@ -39,16 +37,11 @@ second-stage networks. \code{NULL} (default) uses the control list as supplied.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 
-\item{screen}{Logical. Select the nuisance inputs within each training fold by
-\code{\link[=screen_augment]{screen_augment()}}. Default \code{TRUE}.}
-
 \item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
 uses \code{dnn_ctrl("outcome", l1 = 1e-5)} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise
 \code{en_dnn_ctrl}.}
 
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
-
-\item{min_keep}{Integer. Minimum number of covariates kept by the screen. Default 5.}
 
 \item{split_frac}{Numeric. Share of each treatment arm assigned to the training half S1.
 Default 0.5.}
@@ -61,8 +54,7 @@ treats every subject as its own group.}
 A list containing two sub-lists (\code{unrevised} and \code{revised}), each providing the
 observed weighted mean squared error on S2 (\code{obs_mse}) and the resulting permutation p-value
 (\code{p_value}), \code{tau0} the constant removed by the revised transformation, \code{n_train} and
-\code{n_test} the sizes of S1 and S2, \code{screen} the per-fold number of kept covariates and outcome
-inputs (\code{NULL} when \code{screen = FALSE}), and \code{tuning}, the settings selected in each fold
+\code{n_test} the sizes of S1 and S2, and \code{tuning}, the settings selected in each fold
 (fold \code{NA} for the stage-2 fits on S1) when \code{tune} is used (\code{NULL} otherwise).
 }
 \description{
@@ -71,10 +63,8 @@ The nuisance models are cross-fitted on the full sample, the second-stage effect
 are fitted on one half of the sample (S1), and the observed loss on the other half (S2) is
 compared with the losses after shuffling the S2 predictions within treatment arm.
 
-Nuisance estimation follows \code{\link[=davies_test]{davies_test()}}: folds stratified by treatment arm, the
-within-fold screen of \code{\link[=screen_augment]{screen_augment()}} choosing the network inputs (kept covariates for
-the propensity network, kept covariates plus the selected squares and products for the
-outcome networks), propensity estimates clipped to \verb{[clip, 1 - clip]}, and the revised
-constant chosen by the blended estimator. The halves are drawn within treatment arm and the
-second-stage effect networks use all p covariates.
+Nuisance estimation follows \code{\link[=davies_test]{davies_test()}}: folds stratified by treatment arm, propensity
+estimates clipped to \verb{[clip, 1 - clip]}, and the revised constant chosen by the blended
+estimator. The halves are drawn within treatment arm and the second-stage effect networks
+use all p covariates.
 }

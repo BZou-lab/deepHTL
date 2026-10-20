@@ -5,12 +5,10 @@
 #' are fitted on one half of the sample (S1), and the observed loss on the other half (S2) is
 #' compared with the losses after shuffling the S2 predictions within treatment arm.
 #' 
-#' Nuisance estimation follows [davies_test()]: folds stratified by treatment arm, the
-#' within-fold screen of [screen_augment()] choosing the network inputs (kept covariates for
-#' the propensity network, kept covariates plus the selected squares and products for the
-#' outcome networks), propensity estimates clipped to `[clip, 1 - clip]`, and the revised
-#' constant chosen by the blended estimator. The halves are drawn within treatment arm and the
-#' second-stage effect networks use all p covariates.
+#' Nuisance estimation follows [davies_test()]: folds stratified by treatment arm, propensity
+#' estimates clipped to `[clip, 1 - clip]`, and the revised constant chosen by the blended
+#' estimator. The halves are drawn within treatment arm and the second-stage effect networks
+#' use all p covariates.
 #'
 #' @param object An object of class `Trt` containing the covariates, outcome, and treatment assignment.
 #' @param k_folds Integer. The number of folds for cross-fitting the nuisance models. Default is 5.
@@ -25,13 +23,10 @@
 #'   outcome networks and weighted squared error (the R-loss on held-out data) for the
 #'   second-stage networks. `NULL` (default) uses the control list as supplied.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
-#' @param screen Logical. Select the nuisance inputs within each training fold by
-#'   [screen_augment()]. Default `TRUE`.
 #' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
 #'   uses `dnn_ctrl("outcome", l1 = 1e-5)` when `en_dnn_ctrl` is also `NULL`, otherwise
 #'   `en_dnn_ctrl`.
 #' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
-#' @param min_keep Integer. Minimum number of covariates kept by the screen. Default 5.
 #' @param split_frac Numeric. Share of each treatment arm assigned to the training half S1.
 #'   Default 0.5.
 #' @param groups Optional vector of group labels (e.g. donor id), one per subject. Members of a
@@ -41,16 +36,15 @@
 #' @return A list containing two sub-lists (`unrevised` and `revised`), each providing the
 #' observed weighted mean squared error on S2 (`obs_mse`) and the resulting permutation p-value
 #' (`p_value`), `tau0` the constant removed by the revised transformation, `n_train` and
-#' `n_test` the sizes of S1 and S2, `screen` the per-fold number of kept covariates and outcome
-#' inputs (`NULL` when `screen = FALSE`), and `tuning`, the settings selected in each fold
+#' `n_test` the sizes of S1 and S2, and `tuning`, the settings selected in each fold
 #' (fold `NA` for the stage-2 fits on S1) when `tune` is used (`NULL` otherwise).
 #'
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
+#' @importFrom utils combn
 #' @export
 cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
-                         screen = TRUE, ctrl_mu = NULL, clip = 0.05, min_keep = 5,
-                         split_frac = 0.5, groups = NULL) {
+                         ctrl_mu = NULL, clip = 0.05, split_frac = 0.5, groups = NULL) {
   arms <- trt_arms(object@z)
   z_fac <- arms$z_fac; z_num <- arms$z_num
 
@@ -69,19 +63,15 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     group_parts(z_num, groups, seq_len(k_folds - 1) / k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
-  sels <- vector("list", k_folds)
+  des <- vector("list", k_folds)
 
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
 
-    if (screen) {
-      sels[[k]] <- screen_augment(X[tr, , drop = FALSE], y[tr], z_num[tr], min_keep = min_keep)
-      Xe <- nuisance_input(sels[[k]], X, augmented = FALSE)
-      Xmu <- nuisance_input(sels[[k]], X, augmented = TRUE)
-    } else {
-      Xe <- Xmu <- X
-    }
+    des[[k]] <- .fold_design(X[tr, , drop = FALSE], y[tr], z_num[tr])
+    Xe <- .fold_x(des[[k]], X, FALSE)
+    Xmu <- .fold_x(des[[k]], X, TRUE)
 
     z_obj <- deepTL::importDnnet(x = Xe[tr, , drop = FALSE], y = z_fac[tr])
     ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
@@ -144,7 +134,7 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     tr <- folds != k
     te <- folds == k
     
-    Xmu <- if (screen) nuisance_input(sels[[k]], X, augmented = TRUE) else X
+    Xmu <- .fold_x(des[[k]], X, TRUE)
     ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
     ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
@@ -203,19 +193,12 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   p_val_u <- (sum(perm_mse_u <= obs_mse_u) + 1) / (B + 1)
   p_val_r <- (sum(perm_mse_r <= obs_mse_r) + 1) / (B + 1)
   
-  screen_tab <- if (screen) {
-    data.frame(fold = seq_len(k_folds),
-               n_vars = vapply(sels, function(s) length(s$vars), integer(1)),
-               n_inputs = vapply(sels, function(s) length(s$vars) + sum(s$feats > s$p), integer(1)))
-  } else NULL
-
   list(
     unrevised = list(obs_mse = obs_mse_u, p_value = p_val_u),
     revised = list(obs_mse = obs_mse_r, p_value = p_val_r),
     tau0 = unname(tau0_opt),
     n_train = n1,
     n_test = n2,
-    screen = screen_tab,
     tuning = if (length(tune_log)) do.call(rbind, tune_log) else NULL
   )
 }
@@ -243,4 +226,47 @@ check_split_args <- function(n, split_frac, groups) {
     stop("split_frac must be a number in (0, 1)")
   if (!is.null(groups) && (length(groups) != n || anyNA(groups)))
     stop("groups must have one non-missing label per subject")
+}
+
+.fold_design <- function(X, Y, Z) {
+  X <- as.matrix(X); p <- ncol(X)
+  Y <- as.numeric(Y)
+  Z <- if (is.factor(Z)) as.numeric(Z == levels(Z)[1]) else as.numeric(Z)
+  if (length(Y) != nrow(X) || length(Z) != nrow(X)) stop("X, Y and Z must have the same number of rows")
+  pr <- if (p >= 2) utils::combn(p, 2) else matrix(integer(0), 2, 0)
+  D <- cbind(X, X^2, X[, pr[1, ], drop = FALSE] * X[, pr[2, ], drop = FALSE])
+  src <- c(as.list(seq_len(p)), as.list(seq_len(p)),
+           lapply(seq_len(ncol(pr)), function(k) pr[, k]))
+  nz <- function(y, fam) {
+    cf <- tryCatch(as.numeric(stats::coef(glmnet::cv.glmnet(D, y, family = fam, alpha = 1, nfolds = 10),
+                                          s = "lambda.min"))[-1],
+                   error = function(e) rep(0, ncol(D)))
+    which(cf != 0)
+  }
+  f <- sort(unique(c(nz(Y, "gaussian"), nz(Z, "binomial"))))
+  v <- sort(unique(unlist(src[f])))
+  if (length(v) < 5) {
+    top <- order(-abs(as.numeric(stats::cor(X, Y))))[seq_len(min(5, p))]
+    v <- sort(unique(c(v, top)))
+  }
+  nm <- colnames(X); if (is.null(nm)) nm <- paste0("X", seq_len(p))
+  lab <- c(nm, paste0(nm, "^2"), if (ncol(pr)) paste0(nm[pr[1, ]], ":", nm[pr[2, ]]))
+  list(v = v, f = f, pr = pr, p = p, nm = nm[v], lab = lab[f])
+}
+
+.fold_x <- function(d, X, full = TRUE) {
+  X <- as.matrix(X); p <- d$p
+  if (ncol(X) != p) stop(sprintf("X must have %d columns", p))
+  out <- X[, d$v, drop = FALSE]
+  colnames(out) <- d$nm
+  if (!full) return(out)
+  h <- d$f[d$f > p]
+  if (!length(h)) return(out)
+  H <- vapply(h, function(j) {
+    if (j <= 2 * p) X[, j - p]^2
+    else { k <- j - 2 * p; X[, d$pr[1, k]] * X[, d$pr[2, k]] }
+  }, numeric(nrow(X)))
+  H <- matrix(H, nrow = nrow(X))
+  colnames(H) <- d$lab[d$f > p]
+  cbind(out, H)
 }

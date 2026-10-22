@@ -30,6 +30,23 @@ dnn_ctrl <- function(model = c("outcome", "propensity"), l1 = 1e-3, n_ensemble =
                      learning.rate = learning_rate, early.stop.det = budget$early.stop.det))
 }
 
+.ctrl1 <- function(l1 = 3e-4) {
+  ct <- dnn_ctrl("outcome", l1 = l1, n_hidden = c(20, 18, 16, 14, 12, 10))
+  ct$esCtrl$n.batch <- 64
+  ct$esCtrl$n.epoch <- 1000
+  ct
+}
+
+.x_in <- function(X) {
+  X <- as.matrix(X)
+  j <- which(apply(X, 2, function(v) length(unique(v)) > 2))
+  if (!length(j)) return(X)
+  S <- scale(X[, j, drop = FALSE])^2
+  nm <- colnames(X); if (is.null(nm)) nm <- paste0("X", seq_len(ncol(X)))
+  colnames(S) <- paste0(nm[j], "_2")
+  cbind(X, S)
+}
+
 # Folds stratified by treatment arm: every arm is spread evenly over the K folds.
 stratified_folds <- function(z, K) {
   z <- as.factor(z)

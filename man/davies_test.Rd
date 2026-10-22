@@ -19,7 +19,8 @@ davies_test(
 Must contain slots \code{@x}, \code{@y}, and \code{@z}.}
 
 \item{ctrl}{Optional list. Control parameters of the propensity network (see
-\code{\link[=dnn_ctrl]{dnn_ctrl()}}). \code{NULL} (default) uses \code{dnn_ctrl("propensity")}.}
+\code{\link[=dnn_ctrl]{dnn_ctrl()}}). \code{NULL} (default) uses hidden layers 20-18-16-14-12-10, mini-batches of
+64, at most 1000 epochs, patience 50 and L1 penalty 3e-4.}
 
 \item{k_folds}{Integer. Number of folds for cross-fitting nuisance parameters (default 5).}
 
@@ -33,7 +34,7 @@ paper does.}
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 
 \item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
-uses \code{dnn_ctrl("outcome")} when \code{ctrl} is also \code{NULL}, otherwise \code{ctrl}.}
+uses the same setting as \code{ctrl}.}
 
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
 }

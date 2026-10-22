@@ -22,7 +22,8 @@ NULL
 #' @param object An object containing the data (usually class \code{Trt}).
 #'                Must contain slots \code{@x}, \code{@y}, and \code{@z}.
 #' @param ctrl Optional list. Control parameters of the propensity network (see
-#'   [dnn_ctrl()]). `NULL` (default) uses `dnn_ctrl("propensity")`.
+#'   [dnn_ctrl()]). `NULL` (default) uses hidden layers 20-18-16-14-12-10, mini-batches of
+#'   64, at most 1000 epochs, patience 50 and L1 penalty 3e-4.
 #' @param k_folds Integer. Number of folds for cross-fitting nuisance parameters (default 5).
 #' @param tune Optional grid of candidate network settings: a data.frame whose columns are
 #'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
@@ -32,7 +33,7 @@ NULL
 #'   paper does.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
 #' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
-#'   uses `dnn_ctrl("outcome")` when `ctrl` is also `NULL`, otherwise `ctrl`.
+#'   uses the same setting as `ctrl`.
 #' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
 #'
 #' @return A list containing:
@@ -52,31 +53,24 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5, tune = NULL, n_tune = 
   y <- object@y
   n <- nrow(x)
 
-  if (is.null(ctrl)) {
-    ctrl <- dnn_ctrl("propensity")
-    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome")
-  }
-  if (is.null(ctrl_mu)) ctrl_mu <- ctrl
+  if (is.null(ctrl)) ctrl <- .ctrl1()
+  if (is.null(ctrl_mu)) ctrl_mu <- .ctrl1()
 
   K <- k_folds
   folds <- stratified_folds(z_fac, K)
   tune_log <- list()
-  des <- vector("list", K)
+  Xmu <- .x_in(x)
 
   e_hat <- mu_hat <- rep(NA_real_, n)
 
   for (k in 1:K) {
     tr <- which(folds != k); te <- which(folds == k)
 
-    des[[k]] <- .fold_design(x[tr, , drop = FALSE], y[tr], z_num[tr])
-    Xe <- .fold_x(des[[k]], x, FALSE)
-    Xmu <- .fold_x(des[[k]], x, TRUE)
-
-    z_obj <- deepTL::importDnnet(x = Xe[tr, , drop = FALSE], y = z_fac[tr])
+    z_obj <- deepTL::importDnnet(x = x[tr, , drop = FALSE], y = z_fac[tr])
     ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
-    pk <- deepTL::predict(z_mod, Xe[te, , drop = FALSE])
+    pk <- deepTL::predict(z_mod, x[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
     y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
@@ -127,7 +121,6 @@ davies_test <- function(object, ctrl = NULL, k_folds = 5, tune = NULL, n_tune = 
 
   for (k in 1:K) {
     tr <- which(folds != k); te <- which(folds == k)
-    Xmu <- .fold_x(des[[k]], x, TRUE)
     ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
     ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")

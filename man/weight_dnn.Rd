@@ -11,7 +11,7 @@ weight_dnn(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5)
 
 \item{k_folds}{Integer. Number of folds for cross-fitting (default 5).}
 
-\item{en_dnn_ctrl}{List. Control parameters for the ensemble DNN.}
+\item{en_dnn_ctrl}{List. Control parameters for the second-stage effect networks.}
 
 \item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
 \code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the

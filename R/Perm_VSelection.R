@@ -45,7 +45,8 @@
 #' via \code{parallel::mclapply} (forking; on Windows use 1). Default is 1.
 #' For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 #' seeding.
-#' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function.
+#' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function, used
+#'   for the second-stage effect network.
 #' @param tune Optional grid of candidate network settings: a data.frame whose columns are
 #'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
 #'   settings of every network are selected within each training fold by the mean out-of-bag
@@ -150,23 +151,25 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
     group_parts(z_num, groups, seq_len(k_folds - 1) / k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
+  ctrl1 <- .ctrl1()
+  Xmu <- .x_in(X)
 
   for (k in seq_len(k_folds)) {
     tr <- folds != k
     te <- folds == k
 
     z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
-    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, ctrl1, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
     pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
-    y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+    y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl1, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
-    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
+    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, Xmu[te, , drop = FALSE]))
   }
 
   e_hat  <- pmin(pmax(e_hat, 0.01), 0.99)

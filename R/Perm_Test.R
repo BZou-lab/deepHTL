@@ -14,7 +14,7 @@
 #' @param k_folds Integer. The number of folds for cross-fitting the nuisance models. Default is 5.
 #' @param B Integer. The number of permutation shuffles to perform. Default is 1000.
 #' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function, used
-#'   for the propensity network and the second-stage effect networks (see [dnn_ctrl()]).
+#'   for the second-stage effect networks (see [dnn_ctrl()]).
 #'   `NULL` (default) uses `dnn_ctrl("propensity", l1 = 1e-5)`.
 #' @param tune Optional grid of candidate network settings: a data.frame whose columns are
 #'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
@@ -23,9 +23,9 @@
 #'   outcome networks and weighted squared error (the R-loss on held-out data) for the
 #'   second-stage networks. `NULL` (default) uses the control list as supplied.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
-#' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
-#'   uses `dnn_ctrl("outcome", l1 = 1e-5)` when `en_dnn_ctrl` is also `NULL`, otherwise
-#'   `en_dnn_ctrl`.
+#' @param ctrl_mu Optional list. Control parameters of the propensity and outcome networks.
+#'   `NULL` (default) uses hidden layers 20-18-16-14-12-10, mini-batches of 64, at most 1000
+#'   epochs, patience 50 and L1 penalty 3e-4.
 #' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
 #' @param split_frac Numeric. Share of each treatment arm assigned to the training half S1.
 #'   Default 0.5.
@@ -41,7 +41,6 @@
 #'
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
-#' @importFrom utils combn
 #' @export
 cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
                          ctrl_mu = NULL, clip = 0.05, split_frac = 0.5, groups = NULL) {
@@ -53,31 +52,24 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   n <- nrow(X)
   check_split_args(n, split_frac, groups)
 
-  if (is.null(en_dnn_ctrl)) {
-    en_dnn_ctrl <- dnn_ctrl("propensity", l1 = 1e-5)
-    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome", l1 = 1e-5)
-  }
-  if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
+  if (is.null(en_dnn_ctrl)) en_dnn_ctrl <- dnn_ctrl("propensity", l1 = 1e-5)
+  if (is.null(ctrl_mu)) ctrl_mu <- .ctrl1()
 
   folds <- if (is.null(groups)) stratified_folds(z_fac, k_folds) else
     group_parts(z_num, groups, seq_len(k_folds - 1) / k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
-  des <- vector("list", k_folds)
+  Xmu <- .x_in(X)
 
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
 
-    des[[k]] <- .fold_design(X[tr, , drop = FALSE], y[tr], z_num[tr])
-    Xe <- .fold_x(des[[k]], X, FALSE)
-    Xmu <- .fold_x(des[[k]], X, TRUE)
-
-    z_obj <- deepTL::importDnnet(x = Xe[tr, , drop = FALSE], y = z_fac[tr])
-    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
+    z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
-    pk <- deepTL::predict(z_mod, Xe[te, , drop = FALSE])
+    pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
     y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
@@ -134,7 +126,6 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     tr <- folds != k
     te <- folds == k
     
-    Xmu <- .fold_x(des[[k]], X, TRUE)
     ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
     ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
@@ -226,47 +217,4 @@ check_split_args <- function(n, split_frac, groups) {
     stop("split_frac must be a number in (0, 1)")
   if (!is.null(groups) && (length(groups) != n || anyNA(groups)))
     stop("groups must have one non-missing label per subject")
-}
-
-.fold_design <- function(X, Y, Z) {
-  X <- as.matrix(X); p <- ncol(X)
-  Y <- as.numeric(Y)
-  Z <- if (is.factor(Z)) as.numeric(Z == levels(Z)[1]) else as.numeric(Z)
-  if (length(Y) != nrow(X) || length(Z) != nrow(X)) stop("X, Y and Z must have the same number of rows")
-  pr <- if (p >= 2) utils::combn(p, 2) else matrix(integer(0), 2, 0)
-  D <- cbind(X, X^2, X[, pr[1, ], drop = FALSE] * X[, pr[2, ], drop = FALSE])
-  src <- c(as.list(seq_len(p)), as.list(seq_len(p)),
-           lapply(seq_len(ncol(pr)), function(k) pr[, k]))
-  nz <- function(y, fam) {
-    cf <- tryCatch(as.numeric(stats::coef(glmnet::cv.glmnet(D, y, family = fam, alpha = 1, nfolds = 10),
-                                          s = "lambda.min"))[-1],
-                   error = function(e) rep(0, ncol(D)))
-    which(cf != 0)
-  }
-  f <- sort(unique(c(nz(Y, "gaussian"), nz(Z, "binomial"))))
-  v <- sort(unique(unlist(src[f])))
-  if (length(v) < 5) {
-    top <- order(-abs(as.numeric(stats::cor(X, Y))))[seq_len(min(5, p))]
-    v <- sort(unique(c(v, top)))
-  }
-  nm <- colnames(X); if (is.null(nm)) nm <- paste0("X", seq_len(p))
-  lab <- c(nm, paste0(nm, "^2"), if (ncol(pr)) paste0(nm[pr[1, ]], ":", nm[pr[2, ]]))
-  list(v = v, f = f, pr = pr, p = p, nm = nm[v], lab = lab[f])
-}
-
-.fold_x <- function(d, X, full = TRUE) {
-  X <- as.matrix(X); p <- d$p
-  if (ncol(X) != p) stop(sprintf("X must have %d columns", p))
-  out <- X[, d$v, drop = FALSE]
-  colnames(out) <- d$nm
-  if (!full) return(out)
-  h <- d$f[d$f > p]
-  if (!length(h)) return(out)
-  H <- vapply(h, function(j) {
-    if (j <= 2 * p) X[, j - p]^2
-    else { k <- j - 2 * p; X[, d$pr[1, k]] * X[, d$pr[2, k]] }
-  }, numeric(nrow(X)))
-  H <- matrix(H, nrow = nrow(X))
-  colnames(H) <- d$lab[d$f > p]
-  cbind(out, H)
 }

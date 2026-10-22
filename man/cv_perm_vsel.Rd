@@ -41,7 +41,8 @@ via \code{parallel::mclapply} (forking; on Windows use 1). Default is 1.
 For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 seeding.}
 
-\item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function.}
+\item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function, used
+for the second-stage effect network.}
 
 \item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
 \code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the

@@ -25,7 +25,7 @@ cv_perm_test(
 \item{B}{Integer. The number of permutation shuffles to perform. Default is 1000.}
 
 \item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function, used
-for the second-stage effect networks (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}).
+for the propensity network and the second-stage effect networks (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}).
 \code{NULL} (default) uses \code{dnn_ctrl("propensity", l1 = 1e-5)}.}
 
 \item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
@@ -37,9 +37,9 @@ second-stage networks. \code{NULL} (default) uses the control list as supplied.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 
-\item{ctrl_mu}{Optional list. Control parameters of the propensity and outcome networks.
-\code{NULL} (default) uses hidden layers 20-18-16-14-12-10, mini-batches of 64, at most 1000
-epochs, patience 50 and L1 penalty 3e-4.}
+\item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
+uses \code{dnn_ctrl("outcome", l1 = 1e-5)} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise
+\code{en_dnn_ctrl}.}
 
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
 

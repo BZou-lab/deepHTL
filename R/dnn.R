@@ -11,7 +11,7 @@ NULL
 #'
 #' @param object An object containing the data (usually class \code{Trt}).
 #' @param k_folds Integer. Number of folds for cross-fitting (default 5).
-#' @param en_dnn_ctrl List. Control parameters for the second-stage effect networks.
+#' @param en_dnn_ctrl List. Control parameters for the ensemble DNN.
 #' @param tune Optional grid of candidate network settings: a data.frame whose columns are
 #'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
 #'   settings of every network are selected within each training fold by the mean out-of-bag
@@ -49,8 +49,6 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
     )
   }
   
-  ctrl1 <- .ctrl1()
-  Xmu <- .x_in(X)
   K <- k_folds
   make_stratified_folds <- function(z, K) {
     z <- as.factor(z)
@@ -77,18 +75,18 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
     tr <- which(folds != k); te <- which(folds == k)
     
     z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
-    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, ctrl1, tune, n_tune)
+    ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
     pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
     z_mod_folds[[k]] <- z_mod
     
-    y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
-    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl1, tune, n_tune)
+    y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
-    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, Xmu[te, , drop = FALSE]))
+    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
     y_mod_folds[[k]] <- y_mod
   }
   
@@ -130,11 +128,11 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
   for (k in 1:K) {
     tr <- which(folds != k); te <- which(folds == k)
     
-    ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
-    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl1, tune, n_tune)
+    ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
+    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, en_dnn_ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
-    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, Xmu[te, , drop = FALSE]))
+    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
   }
 
   Ytilde_u <- (y - mu_hat) / (z_num - e_hat)

@@ -1,11 +1,15 @@
-# Registry design of the paper: Y = tau(X) Z + f(X) + eps, X from a latent Gaussian with cor rho on X1..X10 and
-# X3, X6, X7 binary; tau_type "hte" (Section 5), "tau0" or "tau3" (type I error). One run of the tests, screen and estimator below.
+# Registry design of the paper: Y = tau(X) Z + f(X) + eps, X from a latent Gaussian with cor rho for (X1, X2) and
+# (Xj, Xj+5), j = 1..5, and X3, X6, X7, X11 binary; tau_type "hte" (Section 5), "tau0" or "tau3" (type I error).
+# One run of the tests, screen and estimator below.
 gen_cm <- function(n, p, sigma, tau_type = c("hte", "tau0", "tau3"), rho = 0.3) {
   tau_type <- match.arg(tau_type)
-  Sigma <- diag(p); b <- seq_len(min(10, p)); Sigma[b, b] <- rho; diag(Sigma) <- 1
+  stopifnot(p >= 11)
+  pairs <- rbind(c(1, 2), cbind(1:5, 6:10))
+  Sigma <- diag(p); Sigma[pairs] <- rho; Sigma[pairs[, 2:1]] <- rho
   X <- MASS::mvrnorm(n, rep(0, p), Sigma)
-  X[, 3] <- as.numeric(X[, 3] > qnorm(0.6)); X[, 6] <- as.numeric(X[, 6] > qnorm(0.6)); X[, 7] <- as.numeric(X[, 7] > 0)
-  f   <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] * X[, 5]
+  X[, 3] <- as.numeric(X[, 3] > qnorm(0.6)); X[, 6] <- as.numeric(X[, 6] > qnorm(0.6))
+  X[, 7] <- as.numeric(X[, 7] > 0); X[, 11] <- as.numeric(X[, 11] > 0)
+  f   <- log(abs(X[, 1]) + 1) - X[, 2]^2 + sin(X[, 3]) + 0.5 * X[, 4] + 0.5 * X[, 5]
   e   <- plogis(0.8 * sin(pi * X[, 1] * X[, 2]) + 0.6 * X[, 3] * X[, 4] + 0.5 * tanh(X[, 5]))
   tau <- switch(tau_type, hte = -1 + X[, 1] * X[, 2] + cos(X[, 3])^2 + pmax(X[, 4] - X[, 5], 0),
                 tau0 = rep(0, n), tau3 = rep(3, n))

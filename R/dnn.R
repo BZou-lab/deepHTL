@@ -11,44 +11,40 @@ NULL
 #'
 #' @param object An object containing the data (usually class \code{Trt}).
 #' @param k_folds Integer. Number of folds for cross-fitting (default 5).
-#' @param en_dnn_ctrl List. Control parameters for the ensemble DNN.
-#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
-#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
-#'   settings of every network are selected within each training fold by the mean out-of-bag
-#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-#'   outcome networks and weighted squared error (the R-loss on held-out data) for the
-#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#' @param en_dnn_ctrl List. Control parameters of the propensity network and the second-stage
+#'   effect networks (see [dnn_ctrl()]). `NULL` (default) uses `dnn_ctrl("propensity")`.
+#' @param tune Grid of candidate settings for the propensity and outcome networks: `TRUE`
+#'   (default) for [dnn_tune_grid()], a data.frame whose columns are `esCtrl` entries, or
+#'   `FALSE` to use the control lists as supplied. The setting of every network is selected
+#'   within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+#'   the propensity network and squared error for the outcome networks.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
+#' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
+#'   uses `dnn_ctrl("outcome")` when `en_dnn_ctrl` is also `NULL`, otherwise `en_dnn_ctrl`.
+#' @param tune_stage2 Grid for the second-stage effect networks, in the form of `tune`, scored
+#'   by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+#'   `FALSE` (default) uses `en_dnn_ctrl` as supplied.
 #'
 #' @return An object of class \code{weight_dnn} containing the fitted models and, when
-#'   `tune` is used, a `tuning` data.frame with the settings selected for every network.
+#'   `tune` or `tune_stage2` is used, a `tuning` data.frame with the settings selected for
+#'   every network.
 #' @export
 
-weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5) {
+weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = TRUE, n_tune = 5,
+                       ctrl_mu = NULL, tune_stage2 = FALSE) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
-  
+
   X <- object@x
   y <- object@y
   n <- nrow(X)
-  
+
   if (is.null(en_dnn_ctrl)) {
-    en_dnn_ctrl <- list(
-      n.ensemble = 30, verbose = FALSE,
-      esCtrl = list(
-        n.hidden = c(128, 64, 32),
-        n.batch = 256,
-        n.epoch = 120,
-        norm.x = TRUE, norm.y = TRUE,
-        activate = "relu", accel = "rcpp",
-        l1.reg = 1e-4,
-        plot = FALSE,
-        learning.rate.adaptive = "adam",
-        early.stop.det = 20
-      )
-    )
+    en_dnn_ctrl <- dnn_ctrl("propensity")
+    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome")
   }
-  
+  if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
+
   K <- k_folds
   make_stratified_folds <- function(z, K) {
     z <- as.factor(z)
@@ -83,7 +79,7 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
     z_mod_folds[[k]] <- z_mod
     
     y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
     mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
@@ -129,7 +125,7 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
     tr <- which(folds != k); te <- which(folds == k)
     
     ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
-    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, en_dnn_ctrl, tune, n_tune)
+    ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
     ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
@@ -139,12 +135,12 @@ weight_dnn <- function(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_t
   Ytilde_r <- (y - tau0 * z_num - ys0_hat) / (z_num - e_hat)
   
   obj_u_full <- deepTL::importDnnet(x = X, y = Ytilde_u, w = w)
-  ctrl_u_full <- tune_en_dnn_ctrl(obj_u_full, en_dnn_ctrl, tune, n_tune)
+  ctrl_u_full <- tune_en_dnn_ctrl(obj_u_full, en_dnn_ctrl, tune_stage2, n_tune)
   tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_u_full, NA, "stage2_unrevised")
   tau_mod_u_full <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u_full), ctrl_u_full))
-  
+
   obj_r_full <- deepTL::importDnnet(x = X, y = Ytilde_r, w = w)
-  ctrl_r_full <- tune_en_dnn_ctrl(obj_r_full, en_dnn_ctrl, tune, n_tune)
+  ctrl_r_full <- tune_en_dnn_ctrl(obj_r_full, en_dnn_ctrl, tune_stage2, n_tune)
   tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_r_full, NA, "stage2_revised")
   tau_mod_r_full <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r_full), ctrl_r_full))
   

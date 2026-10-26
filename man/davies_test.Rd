@@ -8,7 +8,7 @@ davies_test(
   object,
   ctrl = NULL,
   k_folds = 5,
-  tune = NULL,
+  tune = TRUE,
   n_tune = 5,
   ctrl_mu = NULL,
   clip = 0.05
@@ -23,12 +23,11 @@ Must contain slots \code{@x}, \code{@y}, and \code{@z}.}
 
 \item{k_folds}{Integer. Number of folds for cross-fitting nuisance parameters (default 5).}
 
-\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
-\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
-settings of every network are selected within each training fold by the mean out-of-bag
-loss of a pilot ensemble, log-loss for the propensity network and squared error for the
-outcome networks. \code{NULL} (default) uses the control lists as supplied, which is what the
-paper does.}
+\item{tune}{Grid of candidate settings for the propensity and outcome networks: \code{TRUE}
+(default) for \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}, a data.frame whose columns are \code{esCtrl} entries, or
+\code{FALSE} to use the control lists as supplied. The setting of every network is selected
+within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+the propensity network and squared error for the outcome networks.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 

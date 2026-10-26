@@ -45,14 +45,20 @@
 #' via \code{parallel::mclapply} (forking; on Windows use 1). Default is 1.
 #' For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 #' seeding.
-#' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function.
-#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
-#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
-#'   settings of every network are selected within each training fold by the mean out-of-bag
-#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-#'   outcome network and weighted squared error (the R-loss on held-out data) for the
-#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#' @param en_dnn_ctrl A list of control parameters of the propensity network and the
+#'   second-stage effect network (see [dnn_ctrl()]). `NULL` (default) uses
+#'   `dnn_ctrl("propensity")`.
+#' @param tune Grid of candidate settings for the propensity and outcome networks: `TRUE`
+#'   (default) for [dnn_tune_grid()], a data.frame whose columns are `esCtrl` entries, or
+#'   `FALSE` to use the control lists as supplied. The setting of every network is selected
+#'   within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+#'   the propensity network and squared error for the outcome network.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
+#' @param ctrl_mu Optional list. Control parameters of the outcome network. `NULL` (default)
+#'   uses `dnn_ctrl("outcome")` when `en_dnn_ctrl` is also `NULL`, otherwise `en_dnn_ctrl`.
+#' @param tune_stage2 Grid for the second-stage effect network, in the form of `tune`, scored
+#'   by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+#'   `FALSE` (default) uses `en_dnn_ctrl` as supplied.
 #' @param split_frac Numeric. Share of each treatment arm assigned to the training half S1.
 #'   Default 0.5.
 #' @param groups Optional vector of group labels (e.g. donor id), one per subject. Members of a
@@ -97,7 +103,8 @@
 #' @export
 cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
                          n_strata = 5, chunk = 50, n_cores = 1,
-                         en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
+                         en_dnn_ctrl = NULL, tune = TRUE, n_tune = 5,
+                         ctrl_mu = NULL, tune_stage2 = FALSE,
                          split_frac = 0.5, groups = NULL, var_groups = NULL) {
   z_fac <- if (is.factor(object@z)) object@z else factor(ifelse(object@z == 1, "A", "B"), levels = c("A", "B"))
   z_num <- if (is.numeric(object@z)) object@z else as.numeric(z_fac == "A")
@@ -129,21 +136,10 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
   u <- length(units)
 
   if (is.null(en_dnn_ctrl)) {
-    en_dnn_ctrl <- list(
-      n.ensemble = 30, verbose = FALSE,
-      esCtrl = list(
-        n.hidden = c(128, 64, 32),
-        n.batch = 256,
-        n.epoch = 120,
-        norm.x = TRUE, norm.y = TRUE,
-        activate = "relu", accel = "rcpp",
-        l1.reg = 1e-3,
-        plot = FALSE,
-        learning.rate.adaptive = "adam",
-        early.stop.det = 20
-      )
-    )
+    en_dnn_ctrl <- dnn_ctrl("propensity")
+    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome")
   }
+  if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
 
   ## ---- stage 1: cross-fitted nuisances -------------------------------------
   folds <- if (is.null(groups)) sample(rep(seq_len(k_folds), length.out = n)) else
@@ -163,7 +159,7 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
     y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
-    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, en_dnn_ctrl, tune, n_tune)
+    ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
     mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
@@ -179,7 +175,7 @@ cv_perm_vsel <- function(object, k_folds = 5, B = 500, cor_threshold = 0.2,
   n1 <- sum(S1); n2 <- length(i2)
   if (n1 == 0 || n2 == 0) stop("both halves of the sample split must be non-empty")
   o <- deepTL::importDnnet(x = X[S1, , drop = FALSE], y = Ytilde[S1], w = w[S1])
-  ctrl_m <- tune_en_dnn_ctrl(o, en_dnn_ctrl, tune, n_tune)
+  ctrl_m <- tune_en_dnn_ctrl(o, en_dnn_ctrl, tune_stage2, n_tune)
   tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_m, NA_integer_, "stage2")
   stage2 <- do.call(deepTL::ensemble_dnnet, c(list(object = o), ctrl_m))
   X2 <- X[i2, , drop = FALSE]

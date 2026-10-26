@@ -45,4 +45,3 @@ importFrom(stats,
   sd,
   var
 )
-importFrom(utils,combn)

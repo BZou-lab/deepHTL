@@ -9,9 +9,10 @@ cv_perm_test(
   k_folds = 5,
   B = 1000,
   en_dnn_ctrl = NULL,
-  tune = NULL,
+  tune = TRUE,
   n_tune = 5,
   ctrl_mu = NULL,
+  tune_stage2 = FALSE,
   clip = 0.05,
   split_frac = 0.5,
   groups = NULL
@@ -26,20 +27,22 @@ cv_perm_test(
 
 \item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function, used
 for the propensity network and the second-stage effect networks (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}).
-\code{NULL} (default) uses \code{dnn_ctrl("propensity", l1 = 1e-5)}.}
+\code{NULL} (default) uses \code{dnn_ctrl("propensity")}.}
 
-\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
-\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
-settings of every network are selected within each training fold by the mean out-of-bag
-loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-outcome networks and weighted squared error (the R-loss on held-out data) for the
-second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+\item{tune}{Grid of candidate settings for the propensity and outcome networks: \code{TRUE}
+(default) for \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}, a data.frame whose columns are \code{esCtrl} entries, or
+\code{FALSE} to use the control lists as supplied. The setting of every network is selected
+within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+the propensity network and squared error for the outcome networks.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
 
 \item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
-uses \code{dnn_ctrl("outcome", l1 = 1e-5)} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise
-\code{en_dnn_ctrl}.}
+uses \code{dnn_ctrl("outcome")} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise \code{en_dnn_ctrl}.}
+
+\item{tune_stage2}{Grid for the second-stage effect networks, in the form of \code{tune}, scored
+by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+\code{FALSE} (default) uses \code{en_dnn_ctrl} as supplied.}
 
 \item{clip}{Numeric. Propensity estimates are clipped to \verb{[clip, 1 - clip]}. Default 0.05.}
 
@@ -55,7 +58,7 @@ A list containing two sub-lists (\code{unrevised} and \code{revised}), each prov
 observed weighted mean squared error on S2 (\code{obs_mse}) and the resulting permutation p-value
 (\code{p_value}), \code{tau0} the constant removed by the revised transformation, \code{n_train} and
 \code{n_test} the sizes of S1 and S2, and \code{tuning}, the settings selected in each fold
-(fold \code{NA} for the stage-2 fits on S1) when \code{tune} is used (\code{NULL} otherwise).
+(fold \code{NA} for the stage-2 fits on S1) when \code{tune} or \code{tune_stage2} is used (\code{NULL} otherwise).
 }
 \description{
 Performs a sample-split permutation test of treatment effect heterogeneity.

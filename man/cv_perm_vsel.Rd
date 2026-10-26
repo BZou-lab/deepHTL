@@ -13,8 +13,10 @@ cv_perm_vsel(
   chunk = 50,
   n_cores = 1,
   en_dnn_ctrl = NULL,
-  tune = NULL,
+  tune = TRUE,
   n_tune = 5,
+  ctrl_mu = NULL,
+  tune_stage2 = FALSE,
   split_frac = 0.5,
   groups = NULL,
   var_groups = NULL
@@ -41,16 +43,24 @@ via \code{parallel::mclapply} (forking; on Windows use 1). Default is 1.
 For reproducible parallel runs set \code{RNGkind("L'Ecuyer-CMRG")} before
 seeding.}
 
-\item{en_dnn_ctrl}{A list of control parameters for the \code{ensemble_dnnet} function.}
+\item{en_dnn_ctrl}{A list of control parameters of the propensity network and the
+second-stage effect network (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}). \code{NULL} (default) uses
+\code{dnn_ctrl("propensity")}.}
 
-\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
-\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
-settings of every network are selected within each training fold by the mean out-of-bag
-loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-outcome network and weighted squared error (the R-loss on held-out data) for the
-second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+\item{tune}{Grid of candidate settings for the propensity and outcome networks: \code{TRUE}
+(default) for \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}, a data.frame whose columns are \code{esCtrl} entries, or
+\code{FALSE} to use the control lists as supplied. The setting of every network is selected
+within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+the propensity network and squared error for the outcome network.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
+
+\item{ctrl_mu}{Optional list. Control parameters of the outcome network. \code{NULL} (default)
+uses \code{dnn_ctrl("outcome")} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise \code{en_dnn_ctrl}.}
+
+\item{tune_stage2}{Grid for the second-stage effect network, in the form of \code{tune}, scored
+by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+\code{FALSE} (default) uses \code{en_dnn_ctrl} as supplied.}
 
 \item{split_frac}{Numeric. Share of each treatment arm assigned to the training half S1.
 Default 0.5.}

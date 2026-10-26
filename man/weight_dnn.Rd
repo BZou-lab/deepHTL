@@ -4,27 +4,43 @@
 \alias{weight_dnn}
 \title{Weighted DNN Estimator}
 \usage{
-weight_dnn(object, k_folds = 5, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5)
+weight_dnn(
+  object,
+  k_folds = 5,
+  en_dnn_ctrl = NULL,
+  tune = TRUE,
+  n_tune = 5,
+  ctrl_mu = NULL,
+  tune_stage2 = FALSE
+)
 }
 \arguments{
 \item{object}{An object containing the data (usually class \code{Trt}).}
 
 \item{k_folds}{Integer. Number of folds for cross-fitting (default 5).}
 
-\item{en_dnn_ctrl}{List. Control parameters for the ensemble DNN.}
+\item{en_dnn_ctrl}{List. Control parameters of the propensity network and the second-stage
+effect networks (see \code{\link[=dnn_ctrl]{dnn_ctrl()}}). \code{NULL} (default) uses \code{dnn_ctrl("propensity")}.}
 
-\item{tune}{Optional grid of candidate network settings: a data.frame whose columns are
-\code{esCtrl} entries (see \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}) or \code{TRUE} for the default grid. When given, the
-settings of every network are selected within each training fold by the mean out-of-bag
-loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-outcome networks and weighted squared error (the R-loss on held-out data) for the
-second-stage networks. \code{NULL} (default) uses the control list as supplied.}
+\item{tune}{Grid of candidate settings for the propensity and outcome networks: \code{TRUE}
+(default) for \code{\link[=dnn_tune_grid]{dnn_tune_grid()}}, a data.frame whose columns are \code{esCtrl} entries, or
+\code{FALSE} to use the control lists as supplied. The setting of every network is selected
+within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+the propensity network and squared error for the outcome networks.}
 
 \item{n_tune}{Integer. Networks per candidate in the pilot ensembles. Default 5.}
+
+\item{ctrl_mu}{Optional list. Control parameters of the outcome networks. \code{NULL} (default)
+uses \code{dnn_ctrl("outcome")} when \code{en_dnn_ctrl} is also \code{NULL}, otherwise \code{en_dnn_ctrl}.}
+
+\item{tune_stage2}{Grid for the second-stage effect networks, in the form of \code{tune}, scored
+by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+\code{FALSE} (default) uses \code{en_dnn_ctrl} as supplied.}
 }
 \value{
 An object of class \code{weight_dnn} containing the fitted models and, when
-\code{tune} is used, a \code{tuning} data.frame with the settings selected for every network.
+\code{tune} or \code{tune_stage2} is used, a \code{tuning} data.frame with the settings selected for
+every network.
 }
 \description{
 Estimates treatment effects using an ensemble of Deep Neural Networks with

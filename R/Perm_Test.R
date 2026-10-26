@@ -15,17 +15,18 @@
 #' @param B Integer. The number of permutation shuffles to perform. Default is 1000.
 #' @param en_dnn_ctrl A list of control parameters for the `ensemble_dnnet` function, used
 #'   for the propensity network and the second-stage effect networks (see [dnn_ctrl()]).
-#'   `NULL` (default) uses `dnn_ctrl("propensity", l1 = 1e-5)`.
-#' @param tune Optional grid of candidate network settings: a data.frame whose columns are
-#'   `esCtrl` entries (see [dnn_tune_grid()]) or `TRUE` for the default grid. When given, the
-#'   settings of every network are selected within each training fold by the mean out-of-bag
-#'   loss of a pilot ensemble, log-loss for the propensity network, squared error for the
-#'   outcome networks and weighted squared error (the R-loss on held-out data) for the
-#'   second-stage networks. `NULL` (default) uses the control list as supplied.
+#'   `NULL` (default) uses `dnn_ctrl("propensity")`.
+#' @param tune Grid of candidate settings for the propensity and outcome networks: `TRUE`
+#'   (default) for [dnn_tune_grid()], a data.frame whose columns are `esCtrl` entries, or
+#'   `FALSE` to use the control lists as supplied. The setting of every network is selected
+#'   within each training fold by the mean out-of-bag loss of a pilot ensemble, log-loss for
+#'   the propensity network and squared error for the outcome networks.
 #' @param n_tune Integer. Networks per candidate in the pilot ensembles. Default 5.
 #' @param ctrl_mu Optional list. Control parameters of the outcome networks. `NULL` (default)
-#'   uses `dnn_ctrl("outcome", l1 = 1e-5)` when `en_dnn_ctrl` is also `NULL`, otherwise
-#'   `en_dnn_ctrl`.
+#'   uses `dnn_ctrl("outcome")` when `en_dnn_ctrl` is also `NULL`, otherwise `en_dnn_ctrl`.
+#' @param tune_stage2 Grid for the second-stage effect networks, in the form of `tune`, scored
+#'   by the weighted squared error of the pilot ensemble (the R-loss on held-out data).
+#'   `FALSE` (default) uses `en_dnn_ctrl` as supplied.
 #' @param clip Numeric. Propensity estimates are clipped to `[clip, 1 - clip]`. Default 0.05.
 #' @param split_frac Numeric. Share of each treatment arm assigned to the training half S1.
 #'   Default 0.5.
@@ -37,14 +38,13 @@
 #' observed weighted mean squared error on S2 (`obs_mse`) and the resulting permutation p-value
 #' (`p_value`), `tau0` the constant removed by the revised transformation, `n_train` and
 #' `n_test` the sizes of S1 and S2, and `tuning`, the settings selected in each fold
-#' (fold `NA` for the stage-2 fits on S1) when `tune` is used (`NULL` otherwise).
+#' (fold `NA` for the stage-2 fits on S1) when `tune` or `tune_stage2` is used (`NULL` otherwise).
 #'
 #' @importFrom stats coef lm predict var
 #' @importFrom glmnet cv.glmnet
-#' @importFrom utils combn
 #' @export
-cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = NULL, n_tune = 5,
-                         ctrl_mu = NULL, clip = 0.05, split_frac = 0.5, groups = NULL) {
+cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune = TRUE, n_tune = 5,
+                         ctrl_mu = NULL, tune_stage2 = FALSE, clip = 0.05, split_frac = 0.5, groups = NULL) {
   arms <- trt_arms(object@z)
   z_fac <- arms$z_fac; z_num <- arms$z_num
 
@@ -54,8 +54,8 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   check_split_args(n, split_frac, groups)
 
   if (is.null(en_dnn_ctrl)) {
-    en_dnn_ctrl <- dnn_ctrl("propensity", l1 = 1e-5)
-    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome", l1 = 1e-5)
+    en_dnn_ctrl <- dnn_ctrl("propensity")
+    if (is.null(ctrl_mu)) ctrl_mu <- dnn_ctrl("outcome")
   }
   if (is.null(ctrl_mu)) ctrl_mu <- en_dnn_ctrl
 
@@ -63,28 +63,23 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
     group_parts(z_num, groups, seq_len(k_folds - 1) / k_folds)
   e_hat <- mu_hat <- rep(NA_real_, n)
   tune_log <- list()
-  des <- vector("list", k_folds)
 
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
 
-    des[[k]] <- .fold_design(X[tr, , drop = FALSE], y[tr], z_num[tr])
-    Xe <- .fold_x(des[[k]], X, FALSE)
-    Xmu <- .fold_x(des[[k]], X, TRUE)
-
-    z_obj <- deepTL::importDnnet(x = Xe[tr, , drop = FALSE], y = z_fac[tr])
+    z_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = z_fac[tr])
     ctrl_z_mod <- tune_en_dnn_ctrl(z_obj, en_dnn_ctrl, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_z_mod, k, "propensity")
     z_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = z_obj), ctrl_z_mod))
-    pk <- deepTL::predict(z_mod, Xe[te, , drop = FALSE])
+    pk <- deepTL::predict(z_mod, X[te, , drop = FALSE])
     e_hat[te] <- if (is.null(dim(pk))) as.numeric(pk) else as.numeric(pk[, "A"])
 
-    y_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = y[tr])
+    y_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = y[tr])
     ctrl_y_mod <- tune_en_dnn_ctrl(y_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_y_mod, k, "outcome")
     y_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = y_obj), ctrl_y_mod))
-    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, Xmu[te, , drop = FALSE]))
+    mu_hat[te] <- as.numeric(deepTL::predict(y_mod, X[te, , drop = FALSE]))
   }
 
   e_hat <- pmin(pmax(e_hat, clip), 1 - clip)
@@ -133,13 +128,12 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   for (k in 1:k_folds) {
     tr <- folds != k
     te <- folds == k
-    
-    Xmu <- .fold_x(des[[k]], X, TRUE)
-    ys0_obj <- deepTL::importDnnet(x = Xmu[tr, , drop = FALSE], y = Ystar[tr])
+
+    ys0_obj <- deepTL::importDnnet(x = X[tr, , drop = FALSE], y = Ystar[tr])
     ctrl_ys0_mod <- tune_en_dnn_ctrl(ys0_obj, ctrl_mu, tune, n_tune)
     tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_ys0_mod, k, "outcome_revised")
     ys0_mod <- do.call(deepTL::ensemble_dnnet, c(list(object = ys0_obj), ctrl_ys0_mod))
-    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, Xmu[te, , drop = FALSE]))
+    ys0_hat[te] <- as.numeric(deepTL::predict(ys0_mod, X[te, , drop = FALSE]))
   }
 
   Ytilde_u <- (y - mu_hat) / (z_num - e_hat)
@@ -153,13 +147,13 @@ cv_perm_test <- function(object, k_folds = 5, B = 1000, en_dnn_ctrl = NULL, tune
   if (n1 == 0 || n2 == 0) stop("both halves of the sample split must be non-empty")
 
   obj_u <- deepTL::importDnnet(x = X[S1, , drop = FALSE], y = Ytilde_u[S1], w = w[S1])
-  ctrl_mod_u <- tune_en_dnn_ctrl(obj_u, en_dnn_ctrl, tune, n_tune)
+  ctrl_mod_u <- tune_en_dnn_ctrl(obj_u, en_dnn_ctrl, tune_stage2, n_tune)
   tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_u, NA_integer_, "stage2_unrevised")
   mod_u <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_u), ctrl_mod_u))
   pred_u <- as.numeric(deepTL::predict(mod_u, X[S2, , drop = FALSE]))
 
   obj_r <- deepTL::importDnnet(x = X[S1, , drop = FALSE], y = Ytilde_r[S1], w = w[S1])
-  ctrl_mod_r <- tune_en_dnn_ctrl(obj_r, en_dnn_ctrl, tune, n_tune)
+  ctrl_mod_r <- tune_en_dnn_ctrl(obj_r, en_dnn_ctrl, tune_stage2, n_tune)
   tune_log[[length(tune_log) + 1]] <- tune_record(ctrl_mod_r, NA_integer_, "stage2_revised")
   mod_r <- do.call(deepTL::ensemble_dnnet, c(list(object = obj_r), ctrl_mod_r))
   pred_r <- as.numeric(deepTL::predict(mod_r, X[S2, , drop = FALSE]))
@@ -228,45 +222,3 @@ check_split_args <- function(n, split_frac, groups) {
     stop("groups must have one non-missing label per subject")
 }
 
-.fold_design <- function(X, Y, Z) {
-  X <- as.matrix(X); p <- ncol(X)
-  Y <- as.numeric(Y)
-  Z <- if (is.factor(Z)) as.numeric(Z == levels(Z)[1]) else as.numeric(Z)
-  if (length(Y) != nrow(X) || length(Z) != nrow(X)) stop("X, Y and Z must have the same number of rows")
-  pr <- if (p >= 2) utils::combn(p, 2) else matrix(integer(0), 2, 0)
-  D <- cbind(X, X^2, X[, pr[1, ], drop = FALSE] * X[, pr[2, ], drop = FALSE])
-  src <- c(as.list(seq_len(p)), as.list(seq_len(p)),
-           lapply(seq_len(ncol(pr)), function(k) pr[, k]))
-  nz <- function(y, fam) {
-    cf <- tryCatch(as.numeric(stats::coef(glmnet::cv.glmnet(D, y, family = fam, alpha = 1, nfolds = 10),
-                                          s = "lambda.min"))[-1],
-                   error = function(e) rep(0, ncol(D)))
-    which(cf != 0)
-  }
-  f <- sort(unique(c(nz(Y, "gaussian"), nz(Z, "binomial"))))
-  v <- sort(unique(unlist(src[f])))
-  if (length(v) < 5) {
-    top <- order(-abs(as.numeric(stats::cor(X, Y))))[seq_len(min(5, p))]
-    v <- sort(unique(c(v, top)))
-  }
-  nm <- colnames(X); if (is.null(nm)) nm <- paste0("X", seq_len(p))
-  lab <- c(nm, paste0(nm, "^2"), if (ncol(pr)) paste0(nm[pr[1, ]], ":", nm[pr[2, ]]))
-  list(v = v, f = f, pr = pr, p = p, nm = nm[v], lab = lab[f])
-}
-
-.fold_x <- function(d, X, full = TRUE) {
-  X <- as.matrix(X); p <- d$p
-  if (ncol(X) != p) stop(sprintf("X must have %d columns", p))
-  out <- X[, d$v, drop = FALSE]
-  colnames(out) <- d$nm
-  if (!full) return(out)
-  h <- d$f[d$f > p]
-  if (!length(h)) return(out)
-  H <- vapply(h, function(j) {
-    if (j <= 2 * p) X[, j - p]^2
-    else { k <- j - 2 * p; X[, d$pr[1, k]] * X[, d$pr[2, k]] }
-  }, numeric(nrow(X)))
-  H <- matrix(H, nrow = nrow(X))
-  colnames(H) <- d$lab[d$f > p]
-  cbind(out, H)
-}

@@ -2,15 +2,18 @@
 #'
 #' Default grid searched by the `tune` argument of [cv_perm_test()], [davies_test()],
 #' [weight_dnn()] and [cv_perm_vsel()]: the L1 penalty and the mini-batch size of the
-#' networks. The number of epochs is not part of the grid because every network keeps the
-#' weights of its best validation epoch (early stopping inside `deepTL::ensemble_dnnet`), so
-#' `n.epoch` only needs to be a generous upper bound.
+#' networks. By default these functions select the setting of every propensity and outcome
+#' network from this grid, within each training fold, by the mean out-of-bag loss of a pilot
+#' ensemble of `n_tune` networks (see the `tune` argument). The number of epochs is not part
+#' of the grid because every network keeps the weights of its best validation epoch (early
+#' stopping inside `deepTL::ensemble_dnnet`), so `n.epoch` only needs to be a generous upper
+#' bound.
 #'
 #' @param l1 Numeric vector of L1 penalties.
 #' @param n_batch Integer vector of mini-batch sizes.
 #' @return A data.frame with one candidate per row, columns `l1.reg` and `n.batch`.
 #' @export
-dnn_tune_grid <- function(l1 = c(1e-7, 1e-5, 1e-3), n_batch = c(64, 128, 256)) {
+dnn_tune_grid <- function(l1 = c(1e-5, 1e-3), n_batch = c(64, 128, 256)) {
   expand.grid(l1.reg = l1, n.batch = n_batch, KEEP.OUT.ATTRS = FALSE)
 }
 

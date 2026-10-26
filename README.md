@@ -37,6 +37,13 @@ tt <- -1 + xt[,1] * xt[,2] + cos(xt[, 3])^2 + pmax(xt[,4] - xt[,5], 0)
 
 ## Hyper-parameters for DNN and ensemble
 
+By default, `weight_dnn()`, `davies_test()`, `cv_perm_test()` and `cv_perm_vsel()` use the
+network settings of the paper (`dnn_ctrl()`: 30 bagged networks with hidden layers 128-64-32)
+and select the L1 penalty and the mini-batch size of the propensity and outcome networks from
+`dnn_tune_grid()` ({1e-5, 1e-3} x {64, 128, 256}) within each training fold, by the mean
+out-of-bag loss of a pilot ensemble of five networks. Pass `tune = FALSE` to use the settings
+exactly as supplied, or your own control list, for example:
+
 ``` r
 en_dnn_ctrl <- list(
     n.ensemble = 30, verbose = FALSE,

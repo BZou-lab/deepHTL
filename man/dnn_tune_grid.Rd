@@ -4,7 +4,7 @@
 \alias{dnn_tune_grid}
 \title{Candidate settings for the bagged-DNN}
 \usage{
-dnn_tune_grid(l1 = c(1e-07, 1e-05, 0.001), n_batch = c(64, 128, 256))
+dnn_tune_grid(l1 = c(1e-05, 0.001), n_batch = c(64, 128, 256))
 }
 \arguments{
 \item{l1}{Numeric vector of L1 penalties.}
@@ -17,7 +17,10 @@ A data.frame with one candidate per row, columns \code{l1.reg} and \code{n.batch
 \description{
 Default grid searched by the \code{tune} argument of \code{\link[=cv_perm_test]{cv_perm_test()}}, \code{\link[=davies_test]{davies_test()}},
 \code{\link[=weight_dnn]{weight_dnn()}} and \code{\link[=cv_perm_vsel]{cv_perm_vsel()}}: the L1 penalty and the mini-batch size of the
-networks. The number of epochs is not part of the grid because every network keeps the
-weights of its best validation epoch (early stopping inside \code{deepTL::ensemble_dnnet}), so
-\code{n.epoch} only needs to be a generous upper bound.
+networks. By default these functions select the setting of every propensity and outcome
+network from this grid, within each training fold, by the mean out-of-bag loss of a pilot
+ensemble of \code{n_tune} networks (see the \code{tune} argument). The number of epochs is not part
+of the grid because every network keeps the weights of its best validation epoch (early
+stopping inside \code{deepTL::ensemble_dnnet}), so \code{n.epoch} only needs to be a generous upper
+bound.
 }
